@@ -16,33 +16,16 @@
 // TODO: Compression ?
 // TODO: Psychoacoustic model ?
 
-#include "sim.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include <unistd.h>
 
-int loadwav(const char *filename, unsigned char **result) 
-{ 
-	int size = 0;
-	
-	FILE *f = fopen(filename, "rb");
-	if (f == NULL) { 
-		*result = NULL;
-		return 0;
-	} 
-	fseek(f, 0, SEEK_END);
-	size = ftell(f);
-	fseek(f, 0, SEEK_SET);
-	*result = (char *)malloc(size);
-	if (size != fread(*result, sizeof(unsigned char), size, f)) { 
-		free(*result);
-		return 0;
-	} 
-	fclose(f);
-	return size;
-}
+#define MAX_MODES 5
+
+int loadwav(const char *filename, unsigned char **result);
+int gensim(int ws, int framei, char channels, int freqs[3*4096], int vols[3*4096]);
 
 void printusage(void) {
 	puts("Usage:\n");
@@ -60,6 +43,7 @@ void printusage(void) {
 	puts("               bytes for r < 256, words for r >= 256");
 	puts("               ntsc: NTSC (223722Hz) words");
 	puts("               pal: PAL (221681Hz) words");
+	puts("               vgm: Master System NTSC VGM (no header)");
 	puts("               ngp: NeoGeo Pocket (192000Hz) words");
 	puts("-s:          Generate psgtalk.raw 44100Hz 8bit mono simulation file");
 }
@@ -71,28 +55,29 @@ int main(int argc, char *argv[]) {
 	int c, ws, m, n, k, t, f = 0;
 	double kmax, akmax, akmin, bkmax, bkmin;
 	double powmax = 0;
-	double *pow;
+	double * pow;
 	unsigned char *datout;
 	double angle;
 	double inr;
 	double sumr, sumi;
 	int psgfreq;
-	int freqs[3*4096];				// TODO: malloc
-	int vols[3*4096];
+	int * freqs;
+	int * vols;
 	int framei, frames;
 	int fres, rate, channels, sim, fps;
 	char opt;
 	unsigned char modearg[5];		// Beware !
 	char outfilepath[256];
-	int ext, granu;
-	int datword;
-	int volume;
 	char cos_table[256];
 	char sin_table[256];
+	int ext;
+	int granu;
+	int datword;
+	int volume;
 	
-	typedef enum {MODE_RAW = 0, MODE_NTSC, MODE_PAL, MODE_NGP} modetype;
+	typedef enum {MODE_RAW = 0, MODE_NTSC, MODE_PAL, MODE_VGM, MODE_NGP} modetype;
 	
-	char * modestr[4] = {"raw", "ntsc", "pal", "ngp"};
+	char * modestr[5] = {"raw", "ntsc", "pal", "vgm", "ngp"};
 	
 	puts("PSGTalk 0.2 - furrtek 2015\n");
 	
@@ -101,6 +86,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 	
+	// Defaults
 	fres = 64;
 	rate = 2;
 	channels = 3;
@@ -145,13 +131,13 @@ int main(int argc, char *argv[]) {
 					printusage();
 					return 1;
 				}
-				for (c=0; c<4; c++) {
+				for (c=0; c<MAX_MODES; c++) {
 					if (!strcmp(modearg, modestr[c])) {
 						mode = c;
 						break;
 					}
 				}
-				if (c == 4) {
+				if (c == MAX_MODES) {
 					puts("Invalid mode.\n");
 					return 1;
 				}
@@ -159,6 +145,11 @@ int main(int argc, char *argv[]) {
 			case 's':
 				sim = 1;
 		}
+	}
+	
+	if ((mode == MODE_VGM) && (rate > 1)) {
+		puts("VGM mode only works with 1 update per frame (-u 1).\n");
+		return 1;
 	}
 
 	wsize = loadwav(argv[argc-1], &content);
@@ -177,17 +168,20 @@ int main(int argc, char *argv[]) {
 	printf("Resolution: %u (%uHz)\n", fres, granu);
 	printf("Update rate: %u/frame (%uHz @ %ufps)\n", rate, fps * rate, fps);
 	printf("Channels: %u\n", channels);
-	printf("Mode: %s\n\n", modestr[mode]);
+	printf("Mode: %s\n", modestr[mode]);
+	printf("Bitrate: %ubps\n\n", rate*fps*2*8);
 
 	ws = 1 * 44100 / (fps * rate);	// Sample block size
 	m = 1;							// Discrimination between power peaks
 	n = ws - 1;
+	frames = (wsize / ws);
 	
 	pow = malloc((fres-1) * sizeof(double));
 	window = malloc(n * sizeof(unsigned char));
 	
-	frames = (wsize / ws);
-	
+	freqs = malloc(frames * sizeof(int) * channels);
+	vols = malloc(frames * sizeof(int) * channels);
+
 	// Generate cos and sin tables for speed
 	for (c=0; c<255; c++) {
 		angle = (c * 3.14 * 2) / 256;
@@ -313,6 +307,27 @@ int main(int argc, char *argv[]) {
 				}
 			}
 		}
+	} else if (mode == MODE_VGM) {
+		size = (framei + (framei * channels * 6) + 1);
+		datout = malloc(size * sizeof(unsigned char));
+		// For each frame
+		for (f=0; f<framei-1; f++) {
+			// For each channel
+			for (c=0; c<channels; c++) {
+				datword = 111861*2 / (freqs[(f*3)+c] * granu);
+				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
+				volume = vols[(f*3)+c] / 8;
+				if (volume > 15) volume = 15;
+				
+				datout[f+(f*channels*6)+(c*6)] = 0x50;		// VGM "PSG write"
+				datout[f+(f*channels*6)+(c*6)+1] = 0x90 | (c<<5) | volume;
+				datout[f+(f*channels*6)+(c*6)+2] = 0x50;	// VGM "PSG write"
+				datout[f+(f*channels*6)+(c*6)+3] = 0x80 | (c<<5) | (datword & 0x0F);
+				datout[f+(f*channels*6)+(c*6)+4] = 0x50;	// VGM "PSG write"
+				datout[f+(f*channels*6)+(c*6)+5] = datword / 16;
+			}
+			datout[f+(f*channels*6)+(channels*6)] = 0x62;	// VGM "NTSC wait"
+		}
 	} else {
 		if (mode == MODE_NTSC) psgfreq = 111861*2;
 		if (mode == MODE_PAL) psgfreq = 110841*2;
@@ -341,17 +356,17 @@ int main(int argc, char *argv[]) {
 	
 	puts("Output file written.");
 	printf("Size: %ukB\n", size / 1024);
-	printf("Bitrate: %ubps\n", rate*fps*2*8);
 	
 	// Generate simulation file if needed
 	if (sim) {
 		if (gensim(ws, framei, channels, freqs, vols)) puts("\nSimulation file written.\n");
 	}
 	
+	free(freqs);
+	free(vols);
+	free(window);
 	free(content);
 	free(pow);
-
-	system("pause");
 
 	return 0;
 }

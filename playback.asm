@@ -96,7 +96,7 @@ main:
 	ld a,$80
 	out ($BF),a
 
-	ld a,(192/4)-1		; RLI 4 times per frame
+	ld a,(192/2)-1		; RLI 4 times per frame
 	out ($BF),a
 	ld a,$8A
 	out ($BF),a

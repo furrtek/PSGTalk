@@ -67,8 +67,11 @@ Priority=1000
 OverrideBuildCmd=0
 BuildCmd=
 
+[Unit4]
+FileName=load.c
+
 [Unit3]
-FileName=sim.h
+FileName=load.c
 CompileCpp=0
 Folder=
 Compile=1

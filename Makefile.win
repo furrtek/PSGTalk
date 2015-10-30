@@ -5,8 +5,8 @@ CPP  = g++.exe
 CC   = gcc.exe
 WINDRES = windres.exe
 RES  = 
-OBJ  = main.o sim.o $(RES)
-LINKOBJ  = main.o sim.o $(RES)
+OBJ  = main.o sim.o load.o $(RES)
+LINKOBJ  = main.o sim.o load.o $(RES)
 LIBS =  -L"D:/Dev-Cpp/lib"  
 INCS =  -I"D:/Dev-Cpp/include" 
 CXXINCS =  -I"D:/Dev-Cpp/lib/gcc/mingw32/3.4.2/include"  -I"D:/Dev-Cpp/include/c++/3.4.2/backward"  -I"D:/Dev-Cpp/include/c++/3.4.2/mingw32"  -I"D:/Dev-Cpp/include/c++/3.4.2"  -I"D:/Dev-Cpp/include" 
@@ -31,3 +31,6 @@ main.o: main.c
 
 sim.o: sim.c
 	$(CC) -c sim.c -o sim.o $(CFLAGS)
+
+load.o: load.c
+	$(CC) -c load.c -o load.o $(CFLAGS)
