@@ -3,6 +3,7 @@
 // to mimic voice with square tones
 // Furrtek 2015
 
+// TODO: Overlap
 // TODO: Improve quality (A LOT) on real hardware
 //       Compare SMS/Coleco/NGP output with simulation
 // TODO: Detect and handle different wave samplerates
@@ -16,57 +17,57 @@
 // TODO: Compression ?
 // TODO: Psychoacoustic model ?
 
+#include "main.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include <unistd.h>
 
-#define MAX_MODES 5
-
+int parseargs(int argc, char * argv[]);
 int loadwav(const char *filename, unsigned char **result);
-int gensim(int ws, int framei, char channels, int freqs[3*4096], int vols[3*4096]);
+int gensim(int ws, int framei, char channels, int freqs[], int vols[]);
 
-void printusage(void) {
-	puts("Usage:\n");
-	puts("psgtalk [options] speech.wav\n");
-	puts("Wave file needs to be 44100Hz 8bit mono");
-	puts("-r [16~512]: Frequency resolution, default: 64");
-	puts("               Large value increases quality but also computation time");
-	puts("-u [1~64]:   PSG updates per frame, default: 2");
-	puts("               Large value increases quality but also data size");
-	puts("               Values above 1 will require raster interrupts for playback");
-	puts("-c [1~3]:    Number of PSG channels to use, default: 3");
-	puts("               3 is best, 2 is average, 1 is unintelligible");
-	puts("-m [mode]:   Output mode, default: ntsc");
-	puts("               raw: sequential frequency values for each channel");
-	puts("               bytes for r < 256, words for r >= 256");
-	puts("               ntsc: NTSC (223722Hz) words");
-	puts("               pal: PAL (221681Hz) words");
-	puts("               vgm: Master System NTSC VGM (no header)");
-	puts("               ngp: NeoGeo Pocket (192000Hz) words");
-	puts("-s:          Generate psgtalk.raw 44100Hz 8bit mono simulation file");
+char * modestr[5] = {"raw", "ntsc", "pal", "vgm", "ngp"};
+modetype mode = MODE_NTSC;
+
+char lintolog(double in) {
+	double result;
+	
+	/*in = in - 16;
+	if (in < 0) in = 0;
+	result = log10(in)*16;
+    if (result > 15) result = 15;
+    if (result < 0) result = 0;
+    return result;*/
+    
+    result = in / 4;
+    if (result > 15) result = 15;
+    if (result < 0) result = 0;
+    return result;
 }
 
 int main(int argc, char *argv[]) {
-	unsigned char * content;
+	unsigned char * wavebuffer;		// malloc-ated stuff
+	unsigned char * workbuffer;
 	unsigned char * window;
+	double * pow;
+	int * freqs;
+	int * vols;
+	
 	int size, wsize;
+	long i;
 	int c, ws, m, n, k, t, f = 0;
 	double kmax, akmax, akmin, bkmax, bkmin;
-	double powmax = 0;
-	double * pow;
+	double powmax;
 	unsigned char *datout;
 	double angle;
 	double inr;
 	double sumr, sumi;
 	int psgfreq;
-	int * freqs;
-	int * vols;
-	int framei, frames;
-	int fres, rate, channels, sim, fps;
-	char opt;
-	unsigned char modearg[5];		// Beware !
+	int workrate;
+	int undersample;
+	int framei = 0, frames;
 	char outfilepath[256];
 	char cos_table[256];
 	char sin_table[256];
@@ -74,86 +75,20 @@ int main(int argc, char *argv[]) {
 	int granu;
 	int datword;
 	int volume;
-	
-	typedef enum {MODE_RAW = 0, MODE_NTSC, MODE_PAL, MODE_VGM, MODE_NGP} modetype;
-	
-	char * modestr[5] = {"raw", "ntsc", "pal", "vgm", "ngp"};
+	double vol;
 	
 	puts("PSGTalk 0.2 - furrtek 2015\n");
-	
-	if (argc < 2) {
-		printusage();
-		return 1;
-	}
 	
 	// Defaults
 	fres = 64;
 	rate = 2;
 	channels = 3;
-	modetype mode = MODE_NTSC;
 	sim = 0;
-	framei = 0;
 	
-	while ((opt = getopt(argc, argv, "r:u:c:m:s")) != -1) {
-		switch(opt) {
-			case 'r':
-				if (sscanf(optarg, "%i", &fres) != 1) {
-					printusage();
-					return 1;
-				}
-				if ((fres < 16) || (fres > 512)) {
-					puts("Invalid frequency resolution.\n");
-					return 1;
-				}
-				break;
-			case 'u':
-				if (sscanf(optarg, "%i", &rate) != 1) {
-					printusage();
-					return 1;
-				}
-				if ((rate < 1) || (rate > 64)) {
-					puts("Invalid update rate.\n");
-					return 1;
-				}
-				break;
-			case 'c':
-				if (sscanf(optarg, "%i", &channels) != 1) {
-					printusage();
-					return 1;
-				}
-				if ((channels < 1) || (channels > 3)) {
-					puts("Invalid active channels number.\n");
-					return 1;
-				}
-				break;
-			case 'm':
-				if (sscanf(optarg, "%s", modearg) != 1) {
-					printusage();
-					return 1;
-				}
-				for (c=0; c<MAX_MODES; c++) {
-					if (!strcmp(modearg, modestr[c])) {
-						mode = c;
-						break;
-					}
-				}
-				if (c == MAX_MODES) {
-					puts("Invalid mode.\n");
-					return 1;
-				}
-				break;
-			case 's':
-				sim = 1;
-		}
-	}
-	
-	if ((mode == MODE_VGM) && (rate > 1)) {
-		puts("VGM mode only works with 1 update per frame (-u 1).\n");
-		return 1;
-	}
+	if (parseargs(argc, argv)) return 1;
 
-	wsize = loadwav(argv[argc-1], &content);
-	if (!wsize) { 
+	wsize = loadwav(argv[argc-1], &wavebuffer);
+	if (!wsize) {
 		puts("Can't load wave file.\n");
 		return 1;
 	}
@@ -163,24 +98,45 @@ int main(int argc, char *argv[]) {
 	else
 		fps = 60;
 	
-	granu = (44100 / 2 / fres);
+	// Undersample to just above 8192
+	undersample = (samplerate / 8192);
+	workrate = samplerate / undersample;
 	
+	wsize /= undersample;
+	
+	workbuffer = malloc(wsize * sizeof(unsigned char));
+	
+	// Decimate wave data
+	for (i=0; i<wsize; i++) {
+		workbuffer[i] = wavebuffer[i*undersample];
+	}
+
+	ws = workrate / (fps * rate);		// Frame size
+	m = 1;								// Discrimination between power peaks
+	n = ws - 1;
+	frames = (wsize / ws);				// Total number of frames
+	granu = (workrate / n);
+	
+	printf("Samplerate: %luHz -> %u\n", samplerate, workrate);
 	printf("Resolution: %u (%uHz)\n", fres, granu);
 	printf("Update rate: %u/frame (%uHz @ %ufps)\n", rate, fps * rate, fps);
 	printf("Channels: %u\n", channels);
 	printf("Mode: %s\n", modestr[mode]);
 	printf("Bitrate: %ubps\n\n", rate*fps*2*8);
-
-	ws = 1 * 44100 / (fps * rate);	// Sample block size
-	m = 1;							// Discrimination between power peaks
-	n = ws - 1;
-	frames = (wsize / ws);
 	
-	pow = malloc((fres-1) * sizeof(double));
+	pow = malloc(n * sizeof(double));
 	window = malloc(n * sizeof(unsigned char));
-	
 	freqs = malloc(frames * sizeof(int) * channels);
 	vols = malloc(frames * sizeof(int) * channels);
+	
+	// Generate log volume LUT
+	vol = 127 / 4;					// 4 channels
+	for (c=0; c<15; c++) {
+		/*vol_lut[15-c] = vol;
+		vol /= 1.2589;		*/		// 2dB
+		vol_lut[15-c] = (vol)/(c+1);
+	}
+	vol_lut[0] = 0;
 
 	// Generate cos and sin tables for speed
 	for (c=0; c<255; c++) {
@@ -197,34 +153,48 @@ int main(int argc, char *argv[]) {
 	do {
 		// Window frame :)
 		for (t=0; t<n; t++) {
-			content[t + f] = 128 + (((long)content[t + f]-127) * window[t])/256;
+			workbuffer[t + f] = 128 + (((long)workbuffer[t + f]-127) * window[t])/256;
 		}
 		
 		// DFT on sample block
-    	for (k=0; k<fres-1; k++) {	// For each output element
+    	for (k=0; k<(n/2); k++) {	// For each output element
   	      	sumr = 0;
   	      	sumi = 0;
-        	for (t=0; t<n; t++) {	// For each input element
+        	for (t=0; t<n; t++) {		// For each input element
             	c= (0xFF * t * k / n);
-            	inr = content[t + f];
+            	inr = workbuffer[t + f];
             	sumr += (inr * cos_table[c & 0xFF]) / 256;
             	sumi += (inr * sin_table[c & 0xFF]) / 256;
 			}
-			sumr /= 64;
-			sumi /= 64;
-        	pow[k] = sqrt((sumi * sumi) + (sumr * sumr)) * rate;
-    	}
+			sumr /= (256/4);
+			sumi /= (256/4);
+			if ((k == 0) || (k == n/2))
+            	sumr *= (256 / (double)n);
+        	else
+            	sumr *= (512 / (double)n);
+        	sumi *= (512 / (double)n);
+        
+        	pow[k] = sqrt((sumi * sumi) + (sumr * sumr));
+    		if (framei == 100) printf("POW=%f \n", pow[k]);
+		}
+    	
+    	/*if (framei == 800)  {
+    		system("pause");
+    		return 0;
+		}*/
 
 		// Find highest power and its associated frequency
     	powmax = 0;
-    	for (k=1; k<fres; k++) {
+    	for (k=1; k<(n/2); k++) {
 			if (pow[k] > powmax) {
 				powmax = pow[k];
 				kmax = k;
 			}
 		}
     	freqs[framei*3] = kmax;
-    	vols[framei*3] = powmax;
+    	vols[framei*3] = lintolog(powmax);
+    	
+    	//if (framei < 10) printf("POW=%f \n", powmax);
     
     	if (channels > 1) {
     		akmax = kmax + m;
@@ -232,7 +202,7 @@ int main(int argc, char *argv[]) {
     		
     		// Find the second highest power and its associated frequency
 	   	 	powmax = 0;
-	    	for (k=1; k<fres; k++) {
+	    	for (k=1; k<(n/2); k++) {
 	        	if ((k > akmax) || (k < akmin)) {
 	            	if (pow[k] > powmax) {
 	                	powmax = pow[k];
@@ -241,7 +211,7 @@ int main(int argc, char *argv[]) {
 				}
 			}
 	    	freqs[(framei*3)+1] = kmax;
-	    	vols[(framei*3)+1] = powmax;
+	    	vols[(framei*3)+1] = lintolog(powmax);
 	    	
     		if (channels > 2) {
     			bkmax = kmax + m;
@@ -249,7 +219,7 @@ int main(int argc, char *argv[]) {
 	    
 	    		// Find the third highest power and its associated frequency
 		    	powmax = 0;
-		    	for (k=1; k<fres; k++) {
+		    	for (k=1; k<(n/2); k++) {
 		        	if ((k > akmax) || (k < akmin)) {
 						if ((k > bkmax) || (k < bkmin)) {
 		            		if (pow[k] > powmax) {
@@ -260,7 +230,7 @@ int main(int argc, char *argv[]) {
 					}
 				}
 		    	freqs[(framei*3)+2] = kmax;
-		    	vols[(framei*3)+2] = powmax;
+		    	vols[(framei*3)+2] = lintolog(powmax);
 			}
 		}
         
@@ -283,7 +253,7 @@ int main(int argc, char *argv[]) {
 	FILE *fo = fopen(outfilepath, "wb");
 	
 	if (mode == MODE_RAW) {
-		if (fres < 256) {
+		if (n < 256) {
 			size = ((framei * channels * 2) + 1);			// Frequency(byte)/volume pairs
 			datout = malloc(size * sizeof(unsigned char));
 			// For each frame
@@ -329,7 +299,7 @@ int main(int argc, char *argv[]) {
 			datout[f+(f*channels*6)+(channels*6)] = 0x62;	// VGM "NTSC wait"
 		}
 	} else {
-		if (mode == MODE_NTSC) psgfreq = 111861*2;
+		if (mode == MODE_NTSC) psgfreq = 111861*4;
 		if (mode == MODE_PAL) psgfreq = 110841*2;
 		if (mode == MODE_NGP) psgfreq = 96000*2;
 		size = ((framei * channels * 2) + 1);			// 00vvvvffffffffff
@@ -340,7 +310,7 @@ int main(int argc, char *argv[]) {
 			for (c=0; c<channels; c++) {
 				datword = psgfreq / (freqs[(f*3)+c] * granu);
 				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
-				volume = vols[(f*3)+c] / 8;
+				volume = vols[(f*3)+c];
 				if (volume > 15) volume = 15;
 				datword |= (volume << 10);
 				datout[(f*channels*2)+(c*2)] = datword / 256;
@@ -362,10 +332,14 @@ int main(int argc, char *argv[]) {
 		if (gensim(ws, framei, channels, freqs, vols)) puts("\nSimulation file written.\n");
 	}
 	
+    system("pause");
+    return 0;
+	
 	free(freqs);
 	free(vols);
 	free(window);
-	free(content);
+	free(wavebuffer);
+	free(workbuffer);
 	free(pow);
 
 	return 0;
