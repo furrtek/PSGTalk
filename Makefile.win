@@ -5,14 +5,14 @@ CPP  = g++.exe
 CC   = gcc.exe
 WINDRES = windres.exe
 RES  = 
-OBJ  = main.o $(RES)
-LINKOBJ  = main.o $(RES)
+OBJ  = main.o sim.o $(RES)
+LINKOBJ  = main.o sim.o $(RES)
 LIBS =  -L"D:/Dev-Cpp/lib"  
 INCS =  -I"D:/Dev-Cpp/include" 
 CXXINCS =  -I"D:/Dev-Cpp/lib/gcc/mingw32/3.4.2/include"  -I"D:/Dev-Cpp/include/c++/3.4.2/backward"  -I"D:/Dev-Cpp/include/c++/3.4.2/mingw32"  -I"D:/Dev-Cpp/include/c++/3.4.2"  -I"D:/Dev-Cpp/include" 
 BIN  = psgtalk.exe
-CXXFLAGS = $(CXXINCS)  
-CFLAGS = $(INCS)  
+CXXFLAGS = $(CXXINCS)   -Wall
+CFLAGS = $(INCS)   -Wall
 RM = rm -f
 
 .PHONY: all all-before all-after clean clean-custom
@@ -28,3 +28,6 @@ $(BIN): $(OBJ)
 
 main.o: main.c
 	$(CC) -c main.c -o main.o $(CFLAGS)
+
+sim.o: sim.c
+	$(CC) -c sim.c -o sim.o $(CFLAGS)

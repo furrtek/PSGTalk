@@ -1,11 +1,10 @@
-// PSGTalk 0.2
+// PSGTalk 0.21
 // Generates PSG (SN76489) update streams from speech wave files
 // to mimic voice with square tones
 // Furrtek 2015
 
 // TODO: Improve quality (A LOT) on real hardware
 //       Compare SMS/Coleco/NGP output with simulation
-// TODO: Normalize FFT output according to size
 // TODO: Detect and handle different wave samplerates
 // TODO: Harmonics discrimination adaptation/parameter
 // TODO: Handle frenquencies too low
@@ -17,9 +16,11 @@
 // TODO: Compression ?
 // TODO: Psychoacoustic model ?
 
+#include "sim.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include <unistd.h>
 
 int loadwav(const char *filename, unsigned char **result) 
@@ -43,20 +44,13 @@ int loadwav(const char *filename, unsigned char **result)
 	return size;
 }
 
-double sq(double a) {
-	if (sin(a) > 0)
-		return 1;
-	else
-		return -1;	
-}
-
 void printusage(void) {
 	puts("Usage:\n");
 	puts("psgtalk [options] speech.wav\n");
 	puts("Wave file needs to be 44100Hz 8bit mono");
 	puts("-r [16~512]: Frequency resolution, default: 64");
 	puts("               Large value increases quality but also computation time");
-	puts("-u [1~64]:   PSG updates per frame, default: 4");
+	puts("-u [1~64]:   PSG updates per frame, default: 2");
 	puts("               Large value increases quality but also data size");
 	puts("               Values above 1 will require raster interrupts for playback");
 	puts("-c [1~3]:    Number of PSG channels to use, default: 3");
@@ -72,27 +66,29 @@ void printusage(void) {
 
 int main(int argc, char *argv[]) {
 	unsigned char * content;
+	unsigned char * window;
 	int size, wsize;
 	int c, ws, m, n, k, t, f = 0;
 	double kmax, akmax, akmin, bkmax, bkmin;
-	double sa, sb, sc, powmax;
-	unsigned char b;
+	double powmax = 0;
 	double *pow;
-	unsigned char *wavout;
 	unsigned char *datout;
-	double angle, inr, sumr, sumi;
+	double angle;
+	double inr;
+	double sumr, sumi;
 	int psgfreq;
-	int freqs[3][4096];			// TODO: malloc
-	int vols[3][4096];
-	int framei = 0, frames;
-	int s, mix;
+	int freqs[3*4096];				// TODO: malloc
+	int vols[3*4096];
+	int framei, frames;
 	int fres, rate, channels, sim, fps;
 	char opt;
-	char modearg[5];			// Beware !
+	unsigned char modearg[5];		// Beware !
 	char outfilepath[256];
 	int ext, granu;
 	int datword;
 	int volume;
+	char cos_table[256];
+	char sin_table[256];
 	
 	typedef enum {MODE_RAW = 0, MODE_NTSC, MODE_PAL, MODE_NGP} modetype;
 	
@@ -106,10 +102,11 @@ int main(int argc, char *argv[]) {
 	}
 	
 	fres = 64;
-	rate = 4;
+	rate = 2;
 	channels = 3;
 	modetype mode = MODE_NTSC;
 	sim = 0;
+	framei = 0;
 	
 	while ((opt = getopt(argc, argv, "r:u:c:m:s")) != -1) {
 		switch(opt) {
@@ -144,7 +141,7 @@ int main(int argc, char *argv[]) {
 				}
 				break;
 			case 'm':
-				if (sscanf(optarg, "%s", &modearg) != 1) {
+				if (sscanf(optarg, "%s", modearg) != 1) {
 					printusage();
 					return 1;
 				}
@@ -184,26 +181,44 @@ int main(int argc, char *argv[]) {
 
 	ws = 1 * 44100 / (fps * rate);	// Sample block size
 	m = 1;							// Discrimination between power peaks
-    
-	pow = malloc((fres-1) * sizeof(double));
+	n = ws - 1;
 	
-	frames = (wsize / ws) +1;
+	pow = malloc((fres-1) * sizeof(double));
+	window = malloc(n * sizeof(unsigned char));
+	
+	frames = (wsize / ws);
+	
+	// Generate cos and sin tables for speed
+	for (c=0; c<255; c++) {
+		angle = (c * 3.14 * 2) / 256;
+		cos_table[c] = (cos(angle) * 127);
+		sin_table[c] = (sin(angle) * 127);
+	}
+	
+	// Generate window multiply table
+	for (c=0; c<n; c++) {
+		window[c] = sin_table[(c*255)/(n*2)]*2;
+	}
 		
 	do {
-		// TODO: Window !
+		// Window frame :)
+		for (t=0; t<n; t++) {
+			content[t + f] = 128 + (((long)content[t + f]-127) * window[t])/256;
+		}
 		
-		// DFTize sample block
-	    n = ws - 1;
+		// DFT on sample block
     	for (k=0; k<fres-1; k++) {	// For each output element
   	      	sumr = 0;
   	      	sumi = 0;
         	for (t=0; t<n; t++) {	// For each input element
-            	angle = (3.14 * 2 * t * k / n);
-            	inr = (double)content[t + f] / 256;
-            	sumr += (inr * cos(angle));
-            	sumi += (-inr * sin(angle));
+            	c= (0xFF * t * k / n);
+            	inr = content[t + f];
+            	sumr += (inr * cos_table[c & 0xFF]) / 256;
+            	sumi += (inr * sin_table[c & 0xFF]) / 256;
 			}
-        	pow[k] = sqrt((sumi * sumi) + (sumr * sumr));
+			sumr /= 64;
+			sumi /= 64;
+        	pow[k] = sqrt((sumi * sumi) + (sumr * sumr)) * rate;
     	}
 
 		// Find highest power and its associated frequency
@@ -214,8 +229,8 @@ int main(int argc, char *argv[]) {
 				kmax = k;
 			}
 		}
-    	freqs[0][framei] = kmax;
-    	vols[0][framei] = powmax;
+    	freqs[framei*3] = kmax;
+    	vols[framei*3] = powmax;
     
     	if (channels > 1) {
     		akmax = kmax + m;
@@ -231,8 +246,8 @@ int main(int argc, char *argv[]) {
 					}
 				}
 			}
-	    	freqs[1][framei] = kmax;
-	    	vols[1][framei] = powmax;
+	    	freqs[(framei*3)+1] = kmax;
+	    	vols[(framei*3)+1] = powmax;
 	    	
     		if (channels > 2) {
     			bkmax = kmax + m;
@@ -250,8 +265,8 @@ int main(int argc, char *argv[]) {
 						}
 					}
 				}
-		    	freqs[2][framei] = kmax;
-		    	vols[2][framei] = powmax;
+		    	freqs[(framei*3)+2] = kmax;
+		    	vols[(framei*3)+2] = powmax;
 			}
 		}
         
@@ -260,7 +275,7 @@ int main(int argc, char *argv[]) {
     
     	printf("\rComputing frame %u/%u.", framei, frames);
 
-	} while (f < wsize);
+	} while (f < (wsize-ws));
 	
 	puts(" Done.\n");
 	
@@ -281,8 +296,8 @@ int main(int argc, char *argv[]) {
 			for (f=0; f<framei-1; f++) {
 				// For each channel
 				for (c=0; c<channels; c++) {
-					datout[(f*channels*2)+(c*2)] = freqs[c][f];
-					datout[(f*channels*2)+(c*2)+1] = vols[c][f];
+					datout[(f*channels*2)+(c*2)] = freqs[(f*3)+c];
+					datout[(f*channels*2)+(c*2)+1] = vols[(f*3)+c];
 				}
 			}
 		} else {
@@ -292,9 +307,9 @@ int main(int argc, char *argv[]) {
 			for (f=0; f<framei-1; f++) {
 				// For each channel
 				for (c=0; c<channels; c++) {
-					datout[(f*channels*3)+(c*3)] = freqs[c][f] / 256;
-					datout[(f*channels*3)+(c*3)+1] = freqs[c][f] & 255;
-					datout[(f*channels*3)+(c*3)+2] = vols[c][f];
+					datout[(f*channels*3)+(c*3)] = freqs[(f*3)+c] / 256;
+					datout[(f*channels*3)+(c*3)+1] = freqs[(f*3)+c] & 255;
+					datout[(f*channels*3)+(c*3)+2] = vols[(f*3)+c];
 				}
 			}
 		}
@@ -308,9 +323,9 @@ int main(int argc, char *argv[]) {
 		for (f=0; f<framei-1; f++) {
 			// For each channel
 			for (c=0; c<channels; c++) {
-				datword = psgfreq / (freqs[c][f] * granu);
+				datword = psgfreq / (freqs[(f*3)+c] * granu);
 				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
-				volume = vols[c][f];
+				volume = vols[(f*3)+c] / 8;
 				if (volume > 15) volume = 15;
 				datword |= (volume << 10);
 				datout[(f*channels*2)+(c*2)] = datword / 256;
@@ -330,38 +345,13 @@ int main(int argc, char *argv[]) {
 	
 	// Generate simulation file if needed
 	if (sim) {
-		size = ((framei * ws) + 1);
-		wavout = malloc(size * sizeof(unsigned char));
-	
-		// For each frame
-		for (f=0; f<framei-1; f++) {
-			// Generate samples with dirty square wave algorithm
-			for (s=0; s<ws; s++) {
-	            sa = 128 + (sq(2 * 3.14 * freqs[0][f] * s / ws) * vols[0][f] * 2);
-	            mix = sa;
-	            if (channels > 1) {
-					sb = 128 + (sq(2 * 3.14 * freqs[1][f] * s / ws) * vols[1][f] * 4);
-	            	mix += sb;
-				}
-				if (channels > 2) {
-					sc = 128 + (sq(2 * 3.14 * freqs[2][f] * s / ws) * vols[2][f] * 4);
-					mix += sc;
-				}
-	            b = (unsigned char)(mix / channels);
-	            wavout[s + (f * ws)] = b;
-			}
-		}
-		
-		FILE *fsim = fopen("psgtalk.raw", "wb");
-		fwrite(wavout, size, 1, fsim);
-		fclose(fsim);
-		
-		free(wavout);
-		puts("\nSimulation file written.\n");
+		if (gensim(ws, framei, channels, freqs, vols)) puts("\nSimulation file written.\n");
 	}
 	
 	free(content);
 	free(pow);
-	
+
+	system("pause");
+
 	return 0;
 }
