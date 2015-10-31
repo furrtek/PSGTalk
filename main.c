@@ -41,26 +41,27 @@ char lintolog(double in) {
     if (result < 0) result = 0;
     return result;*/
     
-    result = in / 4;
+    result = in * 4;
     if (result > 15) result = 15;
     if (result < 0) result = 0;
     return result;
 }
 
 int main(int argc, char *argv[]) {
-	unsigned char * wavebuffer;		// malloc-ated stuff
+	unsigned char * wavebuffer;		// mallocated stuff
 	unsigned char * workbuffer;
 	unsigned char * window;
+	unsigned char * datout;
 	double * pow;
 	int * freqs;
 	int * vols;
 	
+	unsigned char consolidate;
 	int size, wsize;
 	long i;
 	int c, ws, m, n, k, t, f = 0;
 	double kmax, akmax, akmin, bkmax, bkmin;
 	double powmax;
-	unsigned char *datout;
 	double angle;
 	double inr;
 	double sumr, sumi;
@@ -80,7 +81,7 @@ int main(int argc, char *argv[]) {
 	puts("PSGTalk 0.2 - furrtek 2015\n");
 	
 	// Defaults
-	fres = 64;
+	//fres = 64;
 	rate = 2;
 	channels = 3;
 	sim = 0;
@@ -115,10 +116,11 @@ int main(int argc, char *argv[]) {
 	m = 1;								// Discrimination between power peaks
 	n = ws - 1;
 	frames = (wsize / ws);				// Total number of frames
-	granu = (workrate / n);
+	granu = (workrate / n) / 2;
 	
+	printf("FRAMES: %u\n", frames);
 	printf("Samplerate: %luHz -> %u\n", samplerate, workrate);
-	printf("Resolution: %u (%uHz)\n", fres, granu);
+	printf("Resolution: %uHz\n", granu);
 	printf("Update rate: %u/frame (%uHz @ %ufps)\n", rate, fps * rate, fps);
 	printf("Channels: %u\n", channels);
 	printf("Mode: %s\n", modestr[mode]);
@@ -132,9 +134,9 @@ int main(int argc, char *argv[]) {
 	// Generate log volume LUT
 	vol = 127 / 4;					// 4 channels
 	for (c=0; c<15; c++) {
-		/*vol_lut[15-c] = vol;
-		vol /= 1.2589;		*/		// 2dB
-		vol_lut[15-c] = (vol)/(c+1);
+		vol_lut[15-c] = vol;
+		vol /= 1.2589;				// 2dB
+		//vol_lut[15-c] = (vol)/(c+1);
 	}
 	vol_lut[0] = 0;
 
@@ -157,80 +159,88 @@ int main(int argc, char *argv[]) {
 		}
 		
 		// DFT on sample block
-    	for (k=0; k<(n/2); k++) {	// For each output element
+    	for (k=0; k<n; k++) {		// For each output element
   	      	sumr = 0;
   	      	sumi = 0;
         	for (t=0; t<n; t++) {		// For each input element
-            	c= (0xFF * t * k / n);
-            	inr = workbuffer[t + f];
+            	c = (0xFF * t * ((double)k/2) / n);
+            	inr = workbuffer[t + f] - 127;
             	sumr += (inr * cos_table[c & 0xFF]) / 256;
             	sumi += (inr * sin_table[c & 0xFF]) / 256;
 			}
-			sumr /= (256/4);
-			sumi /= (256/4);
-			if ((k == 0) || (k == n/2))
-            	sumr *= (256 / (double)n);
-        	else
-            	sumr *= (512 / (double)n);
-        	sumi *= (512 / (double)n);
+            sumr /= n;
+        	sumi /= n;
         
         	pow[k] = sqrt((sumi * sumi) + (sumr * sumr));
-    		if (framei == 100) printf("POW=%f \n", pow[k]);
+    		//if (framei == 1) printf("SAMP=%u POW=%f (%uHz)\n", workbuffer[k + f], pow[k], k*granu);
 		}
-    	
-    	/*if (framei == 800)  {
-    		system("pause");
-    		return 0;
-		}*/
 
 		// Find highest power and its associated frequency
     	powmax = 0;
-    	for (k=1; k<(n/2); k++) {
+    	for (k=1; k<(n-1); k++) {
 			if (pow[k] > powmax) {
 				powmax = pow[k];
 				kmax = k;
 			}
 		}
-    	freqs[framei*3] = kmax;
-    	vols[framei*3] = lintolog(powmax);
-    	
-    	//if (framei < 10) printf("POW=%f \n", powmax);
+		//printf("(%fHz)\n", kmax/2*granu);
+    	freqs[framei*channels] = kmax;
+    	vols[framei*channels] = lintolog(powmax);
+		consolidate = (powmax >= (20/4)) ? 1 : 0;
+		
+    	/*if (framei == 1)  {
+    		system("pause");
+    		return 0;
+		}*/
     
     	if (channels > 1) {
-    		akmax = kmax + m;
-    		akmin = kmax - m;
-    		
-    		// Find the second highest power and its associated frequency
-	   	 	powmax = 0;
-	    	for (k=1; k<(n/2); k++) {
-	        	if ((k > akmax) || (k < akmin)) {
-	            	if (pow[k] > powmax) {
-	                	powmax = pow[k];
-	                	kmax = k;
-					}
-				}
-			}
-	    	freqs[(framei*3)+1] = kmax;
-	    	vols[(framei*3)+1] = lintolog(powmax);
-	    	
-    		if (channels > 2) {
-    			bkmax = kmax + m;
-    			bkmin = kmax - m;
-	    
-	    		// Find the third highest power and its associated frequency
-		    	powmax = 0;
-		    	for (k=1; k<(n/2); k++) {
+			if (consolidate) {
+				powmax -= (20/4);
+	    		freqs[(framei*channels)+1] = freqs[framei*channels];
+	    		vols[(framei*channels)+1] = lintolog(powmax);
+	    		consolidate = (powmax >= (20/4)) ? 1 : 0;
+			} else {
+	    		akmax = kmax + m;
+	    		akmin = kmax - m;
+	    		
+	    		// Find the second highest power and its associated frequency
+		   	 	powmax = 0;
+		    	for (k=1; k<(n-1); k++) {
 		        	if ((k > akmax) || (k < akmin)) {
-						if ((k > bkmax) || (k < bkmin)) {
-		            		if (pow[k] > powmax) {
-		                		powmax = pow[k];
-		                		kmax = k;
-							}
+		            	if (pow[k] > powmax) {
+		                	powmax = pow[k];
+		                	kmax = k;
 						}
 					}
 				}
-		    	freqs[(framei*3)+2] = kmax;
-		    	vols[(framei*3)+2] = lintolog(powmax);
+		    	freqs[(framei*channels)+1] = kmax;
+		    	vols[(framei*channels)+1] = lintolog(powmax);
+			}
+	    	
+			if (channels > 2) {
+				if (consolidate) {
+					powmax -= (20/4);
+    				freqs[(framei*channels)+2] = freqs[(framei*channels)+1];
+    				vols[(framei*channels)+2] = lintolog(powmax);
+				} else {
+					bkmax = kmax + m;
+					bkmin = kmax - m;
+    
+		    		// Find the third highest power and its associated frequency
+			    	powmax = 0;
+			    	for (k=1; k<(n-1); k++) {
+			        	if ((k > akmax) || (k < akmin)) {
+							if ((k > bkmax) || (k < bkmin)) {
+			            		if (pow[k] > powmax) {
+			                		powmax = pow[k];
+			                		kmax = k;
+								}
+							}
+						}
+					}
+			    	freqs[(framei*channels)+2] = kmax;
+			    	vols[(framei*channels)+2] = lintolog(powmax);
+				}
 			}
 		}
         
@@ -260,8 +270,8 @@ int main(int argc, char *argv[]) {
 			for (f=0; f<framei-1; f++) {
 				// For each channel
 				for (c=0; c<channels; c++) {
-					datout[(f*channels*2)+(c*2)] = freqs[(f*3)+c];
-					datout[(f*channels*2)+(c*2)+1] = vols[(f*3)+c];
+					datout[(f*channels*2)+(c*2)] = freqs[(f*channels)+c];
+					datout[(f*channels*2)+(c*2)+1] = vols[(f*channels)+c];
 				}
 			}
 		} else {
@@ -271,9 +281,9 @@ int main(int argc, char *argv[]) {
 			for (f=0; f<framei-1; f++) {
 				// For each channel
 				for (c=0; c<channels; c++) {
-					datout[(f*channels*3)+(c*3)] = freqs[(f*3)+c] / 256;
-					datout[(f*channels*3)+(c*3)+1] = freqs[(f*3)+c] & 255;
-					datout[(f*channels*3)+(c*3)+2] = vols[(f*3)+c];
+					datout[(f*channels*3)+(c*3)] = freqs[(f*channels)+c] / 256;
+					datout[(f*channels*3)+(c*3)+1] = freqs[(f*channels)+c] & 255;
+					datout[(f*channels*3)+(c*3)+2] = vols[(f*channels)+c];
 				}
 			}
 		}
@@ -284,9 +294,9 @@ int main(int argc, char *argv[]) {
 		for (f=0; f<framei-1; f++) {
 			// For each channel
 			for (c=0; c<channels; c++) {
-				datword = 111861*2 / (freqs[(f*3)+c] * granu);
+				datword = 111861*2 / (freqs[(f*channels)+c] * granu);
 				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
-				volume = vols[(f*3)+c] / 8;
+				volume = vols[(f*channels)+c] / 8;
 				if (volume > 15) volume = 15;
 				
 				datout[f+(f*channels*6)+(c*6)] = 0x50;		// VGM "PSG write"
@@ -299,7 +309,7 @@ int main(int argc, char *argv[]) {
 			datout[f+(f*channels*6)+(channels*6)] = 0x62;	// VGM "NTSC wait"
 		}
 	} else {
-		if (mode == MODE_NTSC) psgfreq = 111861*4;
+		if (mode == MODE_NTSC) psgfreq = 111861*2;
 		if (mode == MODE_PAL) psgfreq = 110841*2;
 		if (mode == MODE_NGP) psgfreq = 96000*2;
 		size = ((framei * channels * 2) + 1);			// 00vvvvffffffffff
@@ -308,15 +318,16 @@ int main(int argc, char *argv[]) {
 		for (f=0; f<framei-1; f++) {
 			// For each channel
 			for (c=0; c<channels; c++) {
-				datword = psgfreq / (freqs[(f*3)+c] * granu);
+				datword = psgfreq / ((double)freqs[(f*channels)+c] * granu);
 				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
-				volume = vols[(f*3)+c];
+				volume = vols[(f*channels)+c];
 				if (volume > 15) volume = 15;
 				datword |= (volume << 10);
 				datout[(f*channels*2)+(c*2)] = datword / 256;
 				datout[(f*channels*2)+(c*2)+1] = datword & 255;
 			}
 		}
+		puts(" Done.\n");
 	}
 	
 	fwrite(datout, size, 1, fo);
