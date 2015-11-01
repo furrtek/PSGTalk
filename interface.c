@@ -90,8 +90,8 @@ int parseargs(int argc, char * argv[]) {
 	}
 	
 	if ((mode == MODE_VGM) && (rate > 1)) {
-		puts("VGM mode only works with 1 update per frame (-u 1).\n");
-		return 1;
+		puts("VGM mode only works with 1 update per frame (-u 1), forced to 1.\n");
+		rate = 1;
 	}
 	
 	return 0;

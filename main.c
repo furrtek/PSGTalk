@@ -1,12 +1,11 @@
-// PSGTalk 0.21
+// PSGTalk 0.22
 // Generates PSG (SN76489) update streams from speech wave files
 // to mimic voice with square tones
 // Furrtek 2015
 
-// TODO: Overlap
-// TODO: Improve quality (A LOT) on real hardware
+// TODO: Overlap ?
+// TODO: Improve quality on real hardware
 //       Compare SMS/Coleco/NGP output with simulation
-// TODO: Detect and handle different wave samplerates
 // TODO: Harmonics discrimination adaptation/parameter
 // TODO: Handle frenquencies too low
 // TODO: Handle more channels
@@ -56,6 +55,12 @@ int main(int argc, char *argv[]) {
 	int * freqs;
 	int * vols;
 	
+	const unsigned long vgmheader[16] = {	0x206D6756, 0x00000000, 0x00000101, 0x00369E94,
+											0x00000000, 0x00000000, 0x00000000, 0x00000000, 
+											0x00000000, 0x0000003C, 0x00000000, 0x00000000,
+											0x00000000, 0x00000000, 0x00000000, 0x00000000
+											};
+	
 	unsigned char consolidate;
 	int size, wsize;
 	long i;
@@ -77,11 +82,11 @@ int main(int argc, char *argv[]) {
 	int datword;
 	int volume;
 	double vol;
+	int vgmsamples;
 	
 	puts("PSGTalk 0.2 - furrtek 2015\n");
 	
 	// Defaults
-	//fres = 64;
 	rate = 2;
 	channels = 3;
 	sim = 0;
@@ -256,10 +261,16 @@ int main(int argc, char *argv[]) {
 	// Generate output file
 	strcpy(outfilepath, argv[argc-1]);
 	ext = strlen(outfilepath) - 3;
-	outfilepath[ext++] = 'b';
-	outfilepath[ext++] = 'i';
-	outfilepath[ext] = 'n';
-	
+	if (mode == MODE_VGM) {
+		outfilepath[ext++] = 'v';
+		outfilepath[ext++] = 'g';
+		outfilepath[ext] = 'm';
+	} else {
+		outfilepath[ext++] = 'b';
+		outfilepath[ext++] = 'i';
+		outfilepath[ext] = 'n';
+	}
+
 	FILE *fo = fopen(outfilepath, "wb");
 	
 	if (mode == MODE_RAW) {
@@ -288,26 +299,38 @@ int main(int argc, char *argv[]) {
 			}
 		}
 	} else if (mode == MODE_VGM) {
-		size = (framei + (framei * channels * 6) + 1);
+		size = (framei + (framei * channels * 6) + 1) + 64;
 		datout = malloc(size * sizeof(unsigned char));
+		// Header
+		memcpy(datout, vgmheader, 64);
+		datout[4] = size & 255;
+		datout[5] = (size>>8) & 255;
+		datout[6] = (size>>16) & 255;
+		datout[7] = (size>>24) & 255;
 		// For each frame
 		for (f=0; f<framei-1; f++) {
 			// For each channel
 			for (c=0; c<channels; c++) {
 				datword = 111861*2 / (freqs[(f*channels)+c] * granu);
 				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
-				volume = vols[(f*channels)+c] / 8;
+				volume = vols[(f*channels)+c];
 				if (volume > 15) volume = 15;
+				volume = 15 - volume;
 				
-				datout[f+(f*channels*6)+(c*6)] = 0x50;		// VGM "PSG write"
-				datout[f+(f*channels*6)+(c*6)+1] = 0x90 | (c<<5) | volume;
-				datout[f+(f*channels*6)+(c*6)+2] = 0x50;	// VGM "PSG write"
-				datout[f+(f*channels*6)+(c*6)+3] = 0x80 | (c<<5) | (datword & 0x0F);
-				datout[f+(f*channels*6)+(c*6)+4] = 0x50;	// VGM "PSG write"
-				datout[f+(f*channels*6)+(c*6)+5] = datword / 16;
+				datout[64+f+(f*channels*6)+(c*6)] = 0x50;		// VGM "PSG write"
+				datout[64+f+(f*channels*6)+(c*6)+1] = 0x90 | (c<<5) | volume;
+				datout[64+f+(f*channels*6)+(c*6)+2] = 0x50;	// VGM "PSG write"
+				datout[64+f+(f*channels*6)+(c*6)+3] = 0x80 | (c<<5) | (datword & 0x0F);
+				datout[64+f+(f*channels*6)+(c*6)+4] = 0x50;	// VGM "PSG write"
+				datout[64+f+(f*channels*6)+(c*6)+5] = datword / 16;
 			}
-			datout[f+(f*channels*6)+(channels*6)] = 0x62;	// VGM "NTSC wait"
+			datout[64+f+(f*channels*6)+(channels*6)] = 0x62;	// VGM "NTSC wait"
 		}
+		vgmsamples = (framei-1)*735;
+		datout[24] = vgmsamples & 255;
+		datout[25] = (vgmsamples>>8) & 255;
+		datout[26] = (vgmsamples>>16) & 255;
+		datout[27] = (vgmsamples>>24) & 255;
 	} else {
 		if (mode == MODE_NTSC) psgfreq = 111861*2;
 		if (mode == MODE_PAL) psgfreq = 110841*2;
@@ -343,8 +366,8 @@ int main(int argc, char *argv[]) {
 		if (gensim(ws, framei, channels, freqs, vols)) puts("\nSimulation file written.\n");
 	}
 	
-    system("pause");
-    return 0;
+    //system("pause");
+    //return 0;
 	
 	free(freqs);
 	free(vols);
