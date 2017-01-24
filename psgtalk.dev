@@ -1,7 +1,7 @@
 [Project]
 FileName=psgtalk.dev
 Name=PSGTalk
-UnitCount=5
+UnitCount=8
 Type=1
 Ver=1
 ObjFiles=
@@ -10,7 +10,7 @@ Libs=
 PrivateResource=
 ResourceIncludes=
 MakeIncludes=
-Compiler=
+Compiler=-Wall_@@_
 CppCompiler=
 Linker=
 IsCpp=0
@@ -21,7 +21,7 @@ OverrideOutput=0
 OverrideOutputName=psgtalk.exe
 HostApplication=
 Folders=
-CommandLine=C:\Users\furrtek\Documents\PSGTalk\trunk\sonic.wav
+CommandLine=-m vgm -s C:\Users\furrtek\Documents\PSGTalk\trunk\sonic.wav
 UseCustomMakefile=0
 CustomMakefile=
 IncludeVersionInfo=0
@@ -89,6 +89,36 @@ BuildCmd=
 
 [Unit5]
 FileName=main.h
+CompileCpp=0
+Folder=
+Compile=1
+Link=1
+Priority=1000
+OverrideBuildCmd=0
+BuildCmd=
+
+[Unit6]
+FileName=analog.c
+CompileCpp=0
+Folder=
+Compile=1
+Link=1
+Priority=1000
+OverrideBuildCmd=0
+BuildCmd=
+
+[Unit7]
+FileName=out_vgm.c
+CompileCpp=0
+Folder=
+Compile=1
+Link=1
+Priority=1000
+OverrideBuildCmd=0
+BuildCmd=
+
+[Unit8]
+FileName=out_raw.c
 CompileCpp=0
 Folder=
 Compile=1

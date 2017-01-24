@@ -9,11 +9,11 @@
 void printusage(void) {
 	puts("Usage:\n");
 	puts("psgtalk [options] speech.wav\n");
-	puts("Wave file needs to be 44100Hz 8bit mono");
+	puts("Wave file needs to be 8bit signed mono");
 	puts("-r [16~512]: Frequency resolution, default: 64");
-	puts("               Large value increases quality but also computation time");
+	puts("               A large value increases quality but also computation time");
 	puts("-u [1~64]:   PSG updates per frame, default: 2");
-	puts("               Large value increases quality but also data size");
+	puts("               A large value increases quality but also data size");
 	puts("               Values above 1 will require raster interrupts for playback");
 	puts("-c [1~3]:    Number of PSG channels to use, default: 3");
 	puts("               3 is best, 2 is average, 1 is unintelligible");
@@ -49,21 +49,21 @@ int parseargs(int argc, char * argv[]) {
 				}
 				break;
 			case 'u':
-				if (sscanf(optarg, "%i", &rate) != 1) {
+				if (sscanf(optarg, "%i", &update_rate) != 1) {
 					printusage();
 					return 1;
 				}
-				if ((rate < 1) || (rate > 64)) {
+				if ((update_rate < 1) || (update_rate > 64)) {
 					puts("Invalid update rate.\n");
 					return 1;
 				}
 				break;
 			case 'c':
-				if (sscanf(optarg, "%i", &channels) != 1) {
+				if (sscanf(optarg, "%i", &psg_channels) != 1) {
 					printusage();
 					return 1;
 				}
-				if ((channels < 1) || (channels > 3)) {
+				if ((psg_channels < 1) || (psg_channels > 3)) {
 					puts("Invalid active channels number.\n");
 					return 1;
 				}
@@ -89,10 +89,10 @@ int parseargs(int argc, char * argv[]) {
 		}
 	}
 	
-	if ((mode == MODE_VGM) && (rate > 1)) {
+	/*if ((mode == MODE_VGM) && (update_rate > 1)) {
 		puts("VGM mode only works with 1 update per frame (-u 1), forced to 1.\n");
-		rate = 1;
-	}
+		update_rate = 1;
+	}*/
 	
 	return 0;
 }

@@ -1,44 +1,30 @@
-// PSGTalk 0.22
+// PSGTalk 0.3
 // Generates PSG (SN76489) update streams from speech wave files
 // to mimic voice with square tones
-// Furrtek 2015
+// Furrtek 2017
 
-// TODO: Overlap ?
+// TODO: Overlap
+// TODO: Noise channel ?
+// TODO: Log/linear is wrong
+// TODO: "consolidate" sucks
 // TODO: Improve quality on real hardware
 //       Compare SMS/Coleco/NGP output with simulation
 // TODO: Harmonics discrimination adaptation/parameter
 // TODO: Handle frenquencies too low
 // TODO: Handle more channels
 // TODO: Register streams for each system
-// TODO: Log/linear ?
 // TODO: Brute force spectrum matching ?
-// TODO: Noise channel ?
 // TODO: Compression ?
 // TODO: Psychoacoustic model ?
 
 #include "main.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <string.h>
-#include <unistd.h>
-
-int parseargs(int argc, char * argv[]);
-int loadwav(const char *filename, unsigned char **result);
-int gensim(int ws, int framei, char channels, int freqs[], int vols[]);
 
 char * modestr[5] = {"raw", "ntsc", "pal", "vgm", "ngp"};
-modetype mode = MODE_NTSC;
 
-char lintolog(double in) {
-	double result;
-	
-	/*in = in - 16;
-	if (in < 0) in = 0;
-	result = log10(in)*16;
-    if (result > 15) result = 15;
-    if (result < 0) result = 0;
-    return result;*/
+char lintolog(float in) {
+	float result;
+    
+    // So wrong it hurts...
     
     result = in * 4;
     if (result > 15) result = 15;
@@ -47,54 +33,48 @@ char lintolog(double in) {
 }
 
 int main(int argc, char *argv[]) {
-	unsigned char * wavebuffer;		// mallocated stuff
-	unsigned char * workbuffer;
-	unsigned char * window;
-	unsigned char * datout;
-	double * pow;
-	int * freqs;
-	int * vols;
+	// mallocated stuff
+	float * wave_buffer;
+	float * aa_buffer;
+	float * work_buffer;
+	float * frame_buffer;
+	float * pow;
+	unsigned int * freqs;
+	unsigned int * vols;
 	
-	const unsigned long vgmheader[16] = {	0x206D6756, 0x00000000, 0x00000101, 0x00369E94,
-											0x00000000, 0x00000000, 0x00000000, 0x00000000, 
-											0x00000000, 0x0000003C, 0x00000000, 0x00000000,
-											0x00000000, 0x00000000, 0x00000000, 0x00000000
-											};
+	unsigned char * out_buffer;
 	
 	unsigned char consolidate;
-	int size, wsize;
-	long i;
-	int c, ws, m, n, k, t, f = 0;
-	double kmax, akmax, akmin, bkmax, bkmin;
-	double powmax;
-	double angle;
-	double inr;
-	double sumr, sumi;
-	int psgfreq;
-	int workrate;
-	int undersample;
+	unsigned long file_length, wave_size, work_size;
+	unsigned int frame_size, n;
+	unsigned int i;
+	
+	int c, m, k, t, f = 0;
+	float kmax, akmax, akmin, bkmax, bkmin;
+	float powmax;
+	float in_r, sum_r, sum_i;
+	unsigned long psg_freq;
+	float ratio;
 	int framei = 0, frames;
 	char outfilepath[256];
-	char cos_table[256];
-	char sin_table[256];
 	int ext;
 	int granu;
 	int datword;
 	int volume;
-	double vol;
-	int vgmsamples;
 	
-	puts("PSGTalk 0.2 - furrtek 2015\n");
+	puts("PSGTalk 0.3 - furrtek 2017\n");
 	
 	// Defaults
-	rate = 2;
-	channels = 3;
+	update_rate = 2;
+	psg_channels = 3;
 	sim = 0;
+	mode = MODE_NTSC;
 	
-	if (parseargs(argc, argv)) return 1;
+	if (parseargs(argc, argv))
+		return 1;
 
-	wsize = loadwav(argv[argc-1], &wavebuffer);
-	if (!wsize) {
+	wave_size = load_wav(argv[argc - 1], wave_buffer);
+	if (!wave_size) {
 		puts("Can't load wave file.\n");
 		return 1;
 	}
@@ -104,105 +84,102 @@ int main(int argc, char *argv[]) {
 	else
 		fps = 60;
 	
-	// Undersample to just above 8192
-	undersample = (samplerate / 8192);
-	workrate = samplerate / undersample;
-	
-	wsize /= undersample;
-	
-	workbuffer = malloc(wsize * sizeof(unsigned char));
-	
-	// Decimate wave data
-	for (i=0; i<wsize; i++) {
-		workbuffer[i] = wavebuffer[i*undersample];
+	// Anti-alias filtering
+	aa_buffer = (float *)malloc(wave_size);
+	if (aa_buffer == NULL) {
+		puts("Memory allocation failed\n");
+		free(wave_buffer);
+		return 0;
 	}
-
-	ws = workrate / (fps * rate);		// Frame size
-	m = 1;								// Discrimination between power peaks
-	n = ws - 1;
-	frames = (wsize / ws);				// Total number of frames
-	granu = (workrate / n) / 2;
+	lowpass(wave_buffer, aa_buffer, 8192.0, samplerate_in, wave_size);
 	
-	printf("FRAMES: %u\n", frames);
-	printf("Samplerate: %luHz -> %u\n", samplerate, workrate);
+	// Decimate
+	ratio = ((float)samplerate_in / 8192.0);
+	work_size = wave_size / (int)ratio;
+	work_buffer = malloc(work_size * sizeof(unsigned char));
+	if (work_buffer == NULL) {
+		puts("Memory allocation failed\n");
+		free(wave_buffer);
+		free(aa_buffer);
+		return 0;
+	}
+	
+	for (i = 0; i < work_size; i++)
+		work_buffer[i] = aa_buffer[(int)(i * ratio)];
+
+	frame_size = 8192 / (fps * update_rate);		// Frame size
+	m = 1;									// Discrimination between power peaks
+	n = frame_size - 1;
+	frames = (work_size / frame_size);		// Total number of frames
+	granu = (8192 / n) / 2;
+	
+	frame_buffer = malloc(n * sizeof(float));
+	pow = malloc(n * sizeof(float));
+	freqs = malloc(frames * sizeof(int) * psg_channels);
+	vols = malloc(frames * sizeof(int) * psg_channels);
+	
+	if ((window_lut == NULL) || (pow == NULL) || (frame_buffer == NULL) || (freqs == NULL) || (vols == NULL)) {
+		puts("Memory allocation failed\n");
+		return 1;
+	}
+	
+	if (!make_LUTs(n)) {
+		puts("Table generation failed\n");
+		return 1;
+	}
+	
+	// Show recap
+	printf("Frames: %u\n", frames);
+	printf("Samplerate: %luHz -> %u\n", samplerate_in, 8192);
 	printf("Resolution: %uHz\n", granu);
-	printf("Update rate: %u/frame (%uHz @ %ufps)\n", rate, fps * rate, fps);
-	printf("Channels: %u\n", channels);
+	printf("Update rate: %u/frame (%uHz @ %ufps)\n", update_rate, fps * update_rate, fps);
+	printf("PSG channels: %u\n", psg_channels);
 	printf("Mode: %s\n", modestr[mode]);
-	printf("Bitrate: %ubps\n\n", rate*fps*2*8);
-	
-	pow = malloc(n * sizeof(double));
-	window = malloc(n * sizeof(unsigned char));
-	freqs = malloc(frames * sizeof(int) * channels);
-	vols = malloc(frames * sizeof(int) * channels);
-	
-	// Generate log volume LUT
-	vol = 127 / 4;					// 4 channels
-	for (c=0; c<15; c++) {
-		vol_lut[15-c] = vol;
-		vol /= 1.2589;				// 2dB
-		//vol_lut[15-c] = (vol)/(c+1);
-	}
-	vol_lut[0] = 0;
-
-	// Generate cos and sin tables for speed
-	for (c=0; c<255; c++) {
-		angle = (c * 3.14 * 2) / 256;
-		cos_table[c] = (cos(angle) * 127);
-		sin_table[c] = (sin(angle) * 127);
-	}
-	
-	// Generate window multiply table
-	for (c=0; c<n; c++) {
-		window[c] = sin_table[(c*255)/(n*2)]*2;
-	}
+	printf("Bitrate: %ubps\n\n", update_rate * fps * 2 * 8);
 		
 	do {
-		// Window frame :)
-		for (t=0; t<n; t++) {
-			workbuffer[t + f] = 128 + (((long)workbuffer[t + f]-127) * window[t])/256;
-		}
+		// Copy frame
+		memcpy(frame_buffer, &work_buffer[f], n * sizeof(float));
 		
-		// DFT on sample block
-    	for (k=0; k<n; k++) {		// For each output element
-  	      	sumr = 0;
-  	      	sumi = 0;
-        	for (t=0; t<n; t++) {		// For each input element
-            	c = (0xFF * t * ((double)k/2) / n);
-            	inr = workbuffer[t + f] - 127;
-            	sumr += (inr * cos_table[c & 0xFF]) / 256;
-            	sumi += (inr * sin_table[c & 0xFF]) / 256;
+		// Apply window
+		for (t = 0; t < n; t++)
+			frame_buffer[t] *= window_lut[t];
+		
+		// Do DFT
+    	for (k = 0; k < n; k++) {			// For each output element
+  	      	sum_r = 0;
+  	      	sum_i = 0;
+        	for (t = 0; t < n; t++) {		// For each input element
+            	c = (unsigned long)(32768 * t * ((float)k / 2) / n) & 0x7FFF;
+            	in_r = frame_buffer[t];
+            	sum_r += (in_r * cos_lut[c]);
+            	sum_i += (in_r * sin_lut[c]);
 			}
-            sumr /= n;
-        	sumi /= n;
+            sum_r /= n;
+        	sum_i /= n;
         
-        	pow[k] = sqrt((sumi * sumi) + (sumr * sumr));
+        	pow[k] = sqrt((sum_i * sum_i) + (sum_r * sum_r));
     		//if (framei == 1) printf("SAMP=%u POW=%f (%uHz)\n", workbuffer[k + f], pow[k], k*granu);
 		}
 
-		// Find highest power and its associated frequency
+		// Find highest power and its associated frequency (skip DC)
     	powmax = 0;
-    	for (k=1; k<(n-1); k++) {
+    	for (k = 1; k < (n - 1); k++) {
 			if (pow[k] > powmax) {
 				powmax = pow[k];
 				kmax = k;
 			}
 		}
 		//printf("(%fHz)\n", kmax/2*granu);
-    	freqs[framei*channels] = kmax;
-    	vols[framei*channels] = lintolog(powmax);
+    	freqs[framei * update_rate] = kmax;
+    	vols[framei * update_rate] = lintolog(powmax);
 		consolidate = (powmax >= (20/4)) ? 1 : 0;
-		
-    	/*if (framei == 1)  {
-    		system("pause");
-    		return 0;
-		}*/
     
-    	if (channels > 1) {
+    	if (psg_channels > 1) {
 			if (consolidate) {
 				powmax -= (20/4);
-	    		freqs[(framei*channels)+1] = freqs[framei*channels];
-	    		vols[(framei*channels)+1] = lintolog(powmax);
+	    		freqs[(framei*psg_channels)+1] = freqs[framei*psg_channels];
+	    		vols[(framei*psg_channels)+1] = lintolog(powmax);
 	    		consolidate = (powmax >= (20/4)) ? 1 : 0;
 			} else {
 	    		akmax = kmax + m;
@@ -218,15 +195,15 @@ int main(int argc, char *argv[]) {
 						}
 					}
 				}
-		    	freqs[(framei*channels)+1] = kmax;
-		    	vols[(framei*channels)+1] = lintolog(powmax);
+		    	freqs[(framei*psg_channels)+1] = kmax;
+		    	vols[(framei*psg_channels)+1] = lintolog(powmax);
 			}
 	    	
-			if (channels > 2) {
+			if (psg_channels > 2) {
 				if (consolidate) {
 					powmax -= (20/4);
-    				freqs[(framei*channels)+2] = freqs[(framei*channels)+1];
-    				vols[(framei*channels)+2] = lintolog(powmax);
+    				freqs[(framei*psg_channels)+2] = freqs[(framei*psg_channels)+1];
+    				vols[(framei*psg_channels)+2] = lintolog(powmax);
 				} else {
 					bkmax = kmax + m;
 					bkmin = kmax - m;
@@ -243,23 +220,23 @@ int main(int argc, char *argv[]) {
 							}
 						}
 					}
-			    	freqs[(framei*channels)+2] = kmax;
-			    	vols[(framei*channels)+2] = lintolog(powmax);
+			    	freqs[(framei*psg_channels)+2] = kmax;
+			    	vols[(framei*psg_channels)+2] = lintolog(powmax);
 				}
 			}
 		}
         
     	framei++;
-    	f += ws;
+    	f += frame_size;
     
     	printf("\rComputing frame %u/%u.", framei, frames);
 
-	} while (f < (wsize-ws));
+	} while (f < (work_size - frame_size));
 	
 	puts(" Done.\n");
 	
 	// Generate output file
-	strcpy(outfilepath, argv[argc-1]);
+	strcpy(outfilepath, argv[argc - 1]);
 	ext = strlen(outfilepath) - 3;
 	if (mode == MODE_VGM) {
 		outfilepath[ext++] = 'v';
@@ -271,110 +248,63 @@ int main(int argc, char *argv[]) {
 		outfilepath[ext] = 'n';
 	}
 
-	FILE *fo = fopen(outfilepath, "wb");
+
+	FILE * fo = fopen(outfilepath, "wb");
 	
+	// Todo: differenciate MODE (PSG MODE) and OUTPUT MODE !
 	if (mode == MODE_RAW) {
-		if (n < 256) {
-			size = ((framei * channels * 2) + 1);			// Frequency(byte)/volume pairs
-			datout = malloc(size * sizeof(unsigned char));
-			// For each frame
-			for (f=0; f<framei-1; f++) {
-				// For each channel
-				for (c=0; c<channels; c++) {
-					datout[(f*channels*2)+(c*2)] = freqs[(f*channels)+c];
-					datout[(f*channels*2)+(c*2)+1] = vols[(f*channels)+c];
-				}
-			}
-		} else {
-			size = ((framei * channels * 3) + 1);			// Frequency(word)/volume pairs
-			datout = malloc(size * sizeof(unsigned char));
-			// For each frame
-			for (f=0; f<framei-1; f++) {
-				// For each channel
-				for (c=0; c<channels; c++) {
-					datout[(f*channels*3)+(c*3)] = freqs[(f*channels)+c] / 256;
-					datout[(f*channels*3)+(c*3)+1] = freqs[(f*channels)+c] & 255;
-					datout[(f*channels*3)+(c*3)+2] = vols[(f*channels)+c];
-				}
-			}
-		}
+		out_raw(out_buffer, freqs, vols, n);
 	} else if (mode == MODE_VGM) {
-		size = (framei + (framei * channels * 6) + 1) + 64;
-		datout = malloc(size * sizeof(unsigned char));
-		// Header
-		memcpy(datout, vgmheader, 64);
-		datout[4] = size & 255;
-		datout[5] = (size>>8) & 255;
-		datout[6] = (size>>16) & 255;
-		datout[7] = (size>>24) & 255;
-		// For each frame
-		for (f=0; f<framei-1; f++) {
-			// For each channel
-			for (c=0; c<channels; c++) {
-				datword = 111861*2 / (freqs[(f*channels)+c] * granu);
-				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
-				volume = vols[(f*channels)+c];
-				if (volume > 15) volume = 15;
-				volume = 15 - volume;
-				
-				datout[64+f+(f*channels*6)+(c*6)] = 0x50;		// VGM "PSG write"
-				datout[64+f+(f*channels*6)+(c*6)+1] = 0x90 | (c<<5) | volume;
-				datout[64+f+(f*channels*6)+(c*6)+2] = 0x50;	// VGM "PSG write"
-				datout[64+f+(f*channels*6)+(c*6)+3] = 0x80 | (c<<5) | (datword & 0x0F);
-				datout[64+f+(f*channels*6)+(c*6)+4] = 0x50;	// VGM "PSG write"
-				datout[64+f+(f*channels*6)+(c*6)+5] = datword / 16;
-			}
-			datout[64+f+(f*channels*6)+(channels*6)] = 0x62;	// VGM "NTSC wait"
-		}
-		vgmsamples = (framei-1)*735;
-		datout[24] = vgmsamples & 255;
-		datout[25] = (vgmsamples>>8) & 255;
-		datout[26] = (vgmsamples>>16) & 255;
-		datout[27] = (vgmsamples>>24) & 255;
+		out_vgm(out_buffer, freqs, vols);
 	} else {
-		if (mode == MODE_NTSC) psgfreq = 111861*2;
-		if (mode == MODE_PAL) psgfreq = 110841*2;
-		if (mode == MODE_NGP) psgfreq = 96000*2;
-		size = ((framei * channels * 2) + 1);			// 00vvvvffffffffff
-		datout = malloc(size * sizeof(unsigned char));
+		if (mode == MODE_NTSC) psg_freq = 111861*2;
+		if (mode == MODE_PAL) psg_freq = 110841*2;
+		if (mode == MODE_NGP) psg_freq = 96000*2;
+		
+		file_length = ((framei * psg_channels * 2) + 1);
+		out_buffer = malloc(file_length * sizeof(unsigned char));
+		/*if (out_buffer == NULL) {
+			puts("Memory allocation failed\n");
+			return 1;
+		}*/
+		
 		// For each frame
 		for (f=0; f<framei-1; f++) {
 			// For each channel
-			for (c=0; c<channels; c++) {
-				datword = psgfreq / ((double)freqs[(f*channels)+c] * granu);
+			for (c=0; c<psg_channels; c++) {
+				datword = psg_freq / ((float)freqs[(f*psg_channels)+c] * granu);
 				if (datword > 1023) datword = 1023;		// TODO: Handle low freqs by cutting volume ?
-				volume = vols[(f*channels)+c];
+				volume = vols[(f*psg_channels)+c];
 				if (volume > 15) volume = 15;
 				datword |= (volume << 10);
-				datout[(f*channels*2)+(c*2)] = datword / 256;
-				datout[(f*channels*2)+(c*2)+1] = datword & 255;
+				out_buffer[(f*psg_channels*2)+(c*2)] = datword / 256;
+				out_buffer[(f*psg_channels*2)+(c*2)+1] = datword & 255;
 			}
 		}
-		puts(" Done.\n");
 	}
 	
-	fwrite(datout, size, 1, fo);
+	fwrite(out_buffer, file_length, 1, fo);
 	fclose(fo);
 
-	free(datout);
+	free(out_buffer);
 	
 	puts("Output file written.");
-	printf("Size: %ukB\n", size / 1024);
+	printf("Size: %lukB\n", file_length / 1024);
 	
 	// Generate simulation file if needed
 	if (sim) {
-		if (gensim(ws, framei, channels, freqs, vols)) puts("\nSimulation file written.\n");
+		if (gensim(frame_size, framei, psg_channels, freqs, vols)) puts("\nSimulation file written.\n");
 	}
-	
-    //system("pause");
-    //return 0;
 	
 	free(freqs);
 	free(vols);
-	free(window);
-	free(wavebuffer);
-	free(workbuffer);
+	free(frame_buffer);
+	free(wave_buffer);
+	free(work_buffer);
 	free(pow);
+	
+    //system("pause");
+    //return 0;
 
 	return 0;
 }
