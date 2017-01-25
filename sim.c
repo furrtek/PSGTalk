@@ -1,7 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <unistd.h>
+#include "main.h"
 
 extern double vol_lut[16];
 
@@ -13,10 +10,10 @@ int square(int a) {
 		return -1;	
 }
 
-int gensim(int ws, int framei, char channels, int freqs[], int vols[]) {
+int gensim(int ws, int framei, char channels, channels_t const * frequencies, channels_t const * volumes) {
 	int size;
 	int f, s, mix;
-	unsigned char *wavout;
+	unsigned char * wavout;
 	int sa, sb, sc;
 	unsigned char b;
 	
@@ -27,14 +24,14 @@ int gensim(int ws, int framei, char channels, int freqs[], int vols[]) {
 	for (f=0; f<framei-1; f++) {
 		// Generate samples with dirty square wave algorithm
 		for (s=0; s<ws; s++) {
-            sa = 128 + (square(0xFF * freqs[f*channels]/2 * s / ws) * vol_lut[vols[f*channels]]);
+            sa = 128 + (square(0xFF * frequencies[f].ch[0]/2 * s / ws) * attenuation_lut[(int)volumes[f].ch[0]]);
             mix = sa;
             if (channels > 1) {
-				sb = 128 + (square(0xFF * freqs[(f*channels)+1]/2 * s / ws) * vol_lut[vols[(f*channels)+1]]);
+				sb = 128 + (square(0xFF * frequencies[f].ch[1]/2 * s / ws) * attenuation_lut[(int)volumes[f].ch[1]]);
             	mix += sb;
 			}
 			if (channels > 2) {
-				sc = 128 + (square(0xFF * freqs[(f*channels)+2]/2 * s / ws) * vol_lut[vols[(f*channels)+2]]);
+				sc = 128 + (square(0xFF * frequencies[f].ch[2]/2 * s / ws) * attenuation_lut[(int)volumes[f].ch[2]]);
 				mix += sc;
 			}
             b = (unsigned char)mix;

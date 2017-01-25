@@ -17,6 +17,8 @@ void printusage(void) {
 	puts("               Values above 1 will require raster interrupts for playback");
 	puts("-c [1~3]:    Number of PSG channels to use, default: 3");
 	puts("               3 is best, 2 is average, 1 is unintelligible");
+	puts("-p [0~50]:   Window overlap percentage");
+	puts("               0 is no overlap, 50 is half (maximum)");
 	puts("-m [mode]:   Output mode, default: ntsc");
 	puts("               raw: sequential frequency values for each channel");
 	puts("               bytes for r < 256, words for r >= 256");
@@ -27,23 +29,24 @@ void printusage(void) {
 	puts("-s:          Generate psgtalk.raw 44100Hz 8bit mono simulation file");
 }
 
-int parseargs(int argc, char * argv[]) {
+int parse_args(int argc, char * argv[]) {
+	unsigned int c;
+	unsigned int overlap_percent;
 	char opt;
-	int c;
 	
 	if (argc < 2) {
 		printusage();
 		return 1;
 	}
 	
-	while ((opt = getopt(argc, argv, "r:u:c:m:s")) != -1) {
+	while ((opt = getopt(argc, argv, "r:u:c:m:s:p")) != -1) {
 		switch(opt) {
 			case 'r':
-				if (sscanf(optarg, "%i", &fres) != 1) {
+				if (sscanf(optarg, "%i", &freq_res) != 1) {
 					printusage();
 					return 1;
 				}
-				if ((fres < 16) || (fres > 512)) {
+				if ((freq_res < 16) || (freq_res > 512)) {
 					puts("Invalid frequency resolution.\n");
 					return 1;
 				}
@@ -73,7 +76,7 @@ int parseargs(int argc, char * argv[]) {
 					printusage();
 					return 1;
 				}
-				for (c=0; c<MAX_MODES; c++) {
+				for (c = 0; c < MAX_MODES; c++) {
 					if (!strcmp(modearg, modestr[c])) {
 						mode = c;
 						break;
@@ -86,13 +89,20 @@ int parseargs(int argc, char * argv[]) {
 				break;
 			case 's':
 				sim = 1;
+				break;
+			case 'p':
+				if (sscanf(optarg, "%i", &overlap_percent) != 1) {
+					printusage();
+					return 1;
+				}
+				if (overlap_percent > 64) {
+					puts("Invalid overlap percentage.\n");
+					return 1;
+				}
+				overlap = (float)overlap_percent / 100.0;
+				break;
 		}
 	}
-	
-	/*if ((mode == MODE_VGM) && (update_rate > 1)) {
-		puts("VGM mode only works with 1 update per frame (-u 1), forced to 1.\n");
-		update_rate = 1;
-	}*/
 	
 	return 0;
 }
