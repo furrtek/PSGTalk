@@ -18,7 +18,7 @@
 
 #include "main.h"
 
-char * modestr[5] = {"raw", "ntsc", "pal", "vgm", "ngp"};
+char * modestr[3] = {"raw", "vgm", "ngp"};
 
 char lintolog(float in) {
 	float result;
@@ -51,15 +51,10 @@ int main(int argc, char *argv[]) {
 	float kmax;
 	float max_power;
 	float in_r, sum_r, sum_i;
-	unsigned long psg_freq;
 	float ratio;
 	unsigned long frame_idx = 0, frames;
 	char outfilepath[256];
-	unsigned long idx;
-	unsigned long data_idx;
-	unsigned int data_word;
 	unsigned int ext;
-	unsigned int volume;
 	
 	puts("PSGTalk 0.3 - furrtek 2017\n");
 	
@@ -82,11 +77,11 @@ int main(int argc, char *argv[]) {
 	// Offset: Length * (1 - 0.5)
 	
 	// Defaults
-	overlap = 0.5;
+	overlap = 0.25;
 	updates_per_frame = 2;
 	psg_channels = 3;
 	sim = 0;
-	mode = MODE_NTSC;
+	mode = MODE_VGM;
 	
 	if (parse_args(argc, argv))
 		return 1;
@@ -96,11 +91,6 @@ int main(int argc, char *argv[]) {
 		puts("Can't load wave file.\n");
 		return 1;
 	}
-	
-	if (mode == MODE_PAL)
-		fps = 50;
-	else
-		fps = 60;
 	
 	// Anti-alias filtering
 	aa_buffer = (float *)malloc(wave_size);
@@ -128,8 +118,7 @@ int main(int argc, char *argv[]) {
 	frame_size = (8192.0 * (overlap + 1.0)) / update_rate;
 	frame_inc = (float)frame_size * (1.0 - overlap);
 	m = 1;									// Discrimination between power peaks
-	//n = frame_size - 1;
-	frames = (work_size / frame_size);		// Total number of frames
+	frames = work_size / frame_size;		// Total number of frames
 	freq_step = (8192 / freq_res) / 2;
 	
 	frame_buffer = malloc(frame_size * sizeof(float));
@@ -239,41 +228,12 @@ int main(int argc, char *argv[]) {
 
 	FILE * fo = fopen(outfilepath, "wb");
 	
-	// Todo: differenciate MODE (PSG MODE) and OUTPUT MODE !
 	if (mode == MODE_RAW) {
 		out_raw(out_buffer, frequencies, volumes, frame_idx, freq_res);
 	} else if (mode == MODE_VGM) {
 		out_vgm(out_buffer, frequencies, volumes, frame_idx);
-	} else {
-		if (mode == MODE_NTSC) psg_freq = 111861 * 2;
-		if (mode == MODE_PAL) psg_freq = 110841 * 2;
-		if (mode == MODE_NGP) psg_freq = 96000 * 2;
-		
-		file_length = ((frame_idx * psg_channels * 2) + 1);
-		out_buffer = malloc(file_length * sizeof(unsigned char));
-		/*if (out_buffer == NULL) {
-			puts("Memory allocation failed\n");
-			return 1;
-		}*/
-		
-		// For each frame
-		data_idx = 0;
-		for (f = 0; f < frame_idx - 1; f++) {
-			// For each channel
-			for (c = 0; c < psg_channels; c++) {
-				idx = (f * psg_channels) + c;
-			
-				data_word = psg_freq / ((float)frequencies[idx].ch[c] * freq_step);
-				if (data_word > 1023) data_word = 1023;
-				
-				volume = volumes[idx].ch[c];
-				if (volume > 15) volume = 15;
-				data_word |= (volume << 10);
-				
-				out_buffer[data_idx++] = data_word >> 8;
-				out_buffer[data_idx++] = data_word & 0xFF;
-			}
-		}
+	} else if (mode == MODE_NGP) {
+		out_ngp(out_buffer, frequencies, volumes, frame_idx);
 	}
 	
 	fwrite(out_buffer, file_length, 1, fo);
@@ -286,7 +246,8 @@ int main(int argc, char *argv[]) {
 	
 	// Generate simulation file if needed
 	if (sim) {
-		if (gensim(frame_size, frame_idx, psg_channels, frequencies, volumes)) puts("\nSimulation file written.\n");
+		if (gensim(frame_size, frame_idx, psg_channels, frequencies, volumes))
+			puts("\nSimulation file written.\n");
 	}
 	
 	free(frequencies);

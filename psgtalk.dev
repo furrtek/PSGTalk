@@ -1,7 +1,7 @@
 [Project]
 FileName=psgtalk.dev
 Name=PSGTalk
-UnitCount=8
+UnitCount=9
 Type=1
 Ver=1
 ObjFiles=
@@ -119,6 +119,16 @@ BuildCmd=
 
 [Unit8]
 FileName=out_raw.c
+CompileCpp=0
+Folder=
+Compile=1
+Link=1
+Priority=1000
+OverrideBuildCmd=0
+BuildCmd=
+
+[Unit9]
+FileName=out_ngp.c
 CompileCpp=0
 Folder=
 Compile=1

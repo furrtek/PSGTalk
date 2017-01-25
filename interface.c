@@ -1,10 +1,6 @@
 #include "main.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
-#define MAX_MODES 5
+#define MAX_MODES 3
 
 void printusage(void) {
 	puts("Usage:\n");
@@ -17,14 +13,15 @@ void printusage(void) {
 	puts("               Values above 1 will require raster interrupts for playback");
 	puts("-c [1~3]:    Number of PSG channels to use, default: 3");
 	puts("               3 is best, 2 is average, 1 is unintelligible");
-	puts("-p [0~50]:   Window overlap percentage");
+	puts("-p [0~50]:   Window overlap percentage, default: 25");
 	puts("               0 is no overlap, 50 is half (maximum)");
+	puts("-f ntsc/pal: Frame rate");
+	puts("               ntsc: 60fps (223722Hz)");
+	puts("               pal: 50fps (221681Hz)");
 	puts("-m [mode]:   Output mode, default: ntsc");
-	puts("               raw: sequential frequency values for each channel");
-	puts("               bytes for r < 256, words for r >= 256");
-	puts("               ntsc: NTSC (223722Hz) words");
-	puts("               pal: PAL (221681Hz) words");
-	puts("               vgm: Master System NTSC VGM (no header)");
+	puts("               raw: sequential frequency/volume values for each channel");
+	puts("                    bytes for r < 256, words for r >= 256");
+	puts("               vgm: Master System VGM");
 	puts("               ngp: NeoGeo Pocket (192000Hz) words");
 	puts("-s:          Generate psgtalk.raw 44100Hz 8bit mono simulation file");
 }
@@ -33,13 +30,14 @@ int parse_args(int argc, char * argv[]) {
 	unsigned int c;
 	unsigned int overlap_percent;
 	char opt;
+	unsigned char modearg[5], fpsarg[5];		// Beware !
 	
 	if (argc < 2) {
 		printusage();
 		return 1;
 	}
 	
-	while ((opt = getopt(argc, argv, "r:u:c:m:s:p")) != -1) {
+	while ((opt = getopt(argc, argv, "r:u:c:m:s:p:f")) != -1) {
 		switch(opt) {
 			case 'r':
 				if (sscanf(optarg, "%i", &freq_res) != 1) {
@@ -100,6 +98,20 @@ int parse_args(int argc, char * argv[]) {
 					return 1;
 				}
 				overlap = (float)overlap_percent / 100.0;
+				break;
+			case 'f':
+				if (sscanf(optarg, "%s", fpsarg) != 1) {
+					printusage();
+					return 1;
+				}
+				if (!strcmp(fpsarg, "ntsc")) {
+					fps = 60;
+				} else if (!strcmp(fpsarg, "pal")) {
+					fps = 50;
+				} else {
+					puts("Invalid frame rate.\n");
+					return 1;
+				}
 				break;
 		}
 	}

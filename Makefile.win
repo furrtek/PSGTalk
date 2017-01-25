@@ -5,8 +5,8 @@ CPP  = g++.exe
 CC   = gcc.exe
 WINDRES = windres.exe
 RES  = 
-OBJ  = main.o sim.o load.o interface.o analog.o out_vgm.o out_raw.o $(RES)
-LINKOBJ  = main.o sim.o load.o interface.o analog.o out_vgm.o out_raw.o $(RES)
+OBJ  = main.o sim.o load.o interface.o analog.o out_vgm.o out_raw.o out_ngp.o $(RES)
+LINKOBJ  = main.o sim.o load.o interface.o analog.o out_vgm.o out_raw.o out_ngp.o $(RES)
 LIBS =  -L"D:/Dev-Cpp/lib"  
 INCS =  -I"D:/Dev-Cpp/include" 
 CXXINCS =  -I"D:/Dev-Cpp/lib/gcc/mingw32/3.4.2/include"  -I"D:/Dev-Cpp/include/c++/3.4.2/backward"  -I"D:/Dev-Cpp/include/c++/3.4.2/mingw32"  -I"D:/Dev-Cpp/include/c++/3.4.2"  -I"D:/Dev-Cpp/include" 
@@ -46,3 +46,6 @@ out_vgm.o: out_vgm.c
 
 out_raw.o: out_raw.c
 	$(CC) -c out_raw.c -o out_raw.o $(CFLAGS)
+
+out_ngp.o: out_ngp.c
+	$(CC) -c out_ngp.c -o out_ngp.o $(CFLAGS)

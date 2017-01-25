@@ -54,7 +54,7 @@ VBI:
 	srl a
 	srl a
 	xor $0F
-	or %10010000		; Channel 1 volume
+	or %10010000	; Channel 1 volume
 	or e
 	out ($7F),a
 	ld a,b
@@ -75,7 +75,7 @@ VBI:
 	ld b,a
 	ld a,c
 	and $0F
-	or %10000000		; Channel 1 frequency
+	or %10000000	; Channel 1 frequency
 	or e
 	out ($7F),a
 	ld a,b

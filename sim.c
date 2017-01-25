@@ -1,48 +1,48 @@
 #include "main.h"
 
-extern double vol_lut[16];
-
 int square(int a) {
 	a &= 0xFF;
 	if (a > 0x7F)
 		return 1;
 	else
-		return -1;	
+		return -1;
 }
 
-int gensim(int ws, int framei, char channels, channels_t const * frequencies, channels_t const * volumes) {
-	int size;
-	int f, s, mix;
-	unsigned char * wavout;
-	int sa, sb, sc;
+int gensim(const unsigned int frame_size, const unsigned long frame_count, const char channels, channels_t const * frequencies, channels_t const * volumes) {
+	unsigned long size;
+	unsigned long f, s;
+	unsigned int c;
+	unsigned char * wave_out;
+	unsigned long data_idx = 0;
+	int mix;
 	unsigned char b;
+	float adjust;
 	
-	size = ((framei * ws) + 1);
-	wavout = malloc(size * sizeof(unsigned char));
+	size = (frame_count * frame_size) + 1;
+	wave_out = malloc(size * sizeof(unsigned char));
+	if (wave_out == NULL)
+		return 1;
 
 	// For each frame
-	for (f=0; f<framei-1; f++) {
+	for (f = 0; f < frame_count - 1; f++) {
 		// Generate samples with dirty square wave algorithm
-		for (s=0; s<ws; s++) {
-            sa = 128 + (square(0xFF * frequencies[f].ch[0]/2 * s / ws) * attenuation_lut[(int)volumes[f].ch[0]]);
-            mix = sa;
-            if (channels > 1) {
-				sb = 128 + (square(0xFF * frequencies[f].ch[1]/2 * s / ws) * attenuation_lut[(int)volumes[f].ch[1]]);
-            	mix += sb;
-			}
-			if (channels > 2) {
-				sc = 128 + (square(0xFF * frequencies[f].ch[2]/2 * s / ws) * attenuation_lut[(int)volumes[f].ch[2]]);
-				mix += sc;
+		for (s = 0; s < frame_size; s++) {
+			adjust = s / frame_size / 2;
+			mix = 0;
+			// Certainly wrong
+			for (c = 0; c < channels; c++) {
+            	mix += 64 * (square(0xFF * frequencies[f].ch[c] * adjust) * attenuation_lut[(int)volumes[f].ch[c]]);
 			}
             b = (unsigned char)mix;
-            wavout[s + (f * ws)] = b;
+            wave_out[data_idx++] = b;
 		}
 	}
 	
-	FILE *fsim = fopen("psgtalk.raw", "wb");
-	fwrite(wavout, size, 1, fsim);
+	FILE * fsim = fopen("psgtalk.raw", "wb");
+	fwrite(wave_out, size, 1, fsim);
 	fclose(fsim);
 	
-	free(wavout);
-	return 1;
+	free(wave_out);
+	
+	return 0;
 }
