@@ -32,11 +32,11 @@ int out_vgm(unsigned char * out_buffer, channels_t const * frequencies, channels
 		0x00000000
 	};
 	
-	if (mode == MODE_NTSC) {
+	if (fps == 60) {
 		psg_freq = 3579545;
 		wait_mode = WAIT_NTSC;
 		wait_n = 735;
-	} else if (mode == MODE_PAL) {
+	} else if (fps == 50) {
 		psg_freq = 3546893;
 		wait_mode = WAIT_PAL;
 		wait_n = 882;

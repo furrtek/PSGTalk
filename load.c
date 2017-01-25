@@ -25,7 +25,7 @@ int load_wav(const char * filename, float * buffer) {
 	
 	fseek(f, 44, SEEK_SET);
 	
-	buffer = (float *)malloc(size * sizeof(float));
+	buffer = calloc(size, sizeof(float));
 	
 	if (buffer == NULL)
 		return 0;

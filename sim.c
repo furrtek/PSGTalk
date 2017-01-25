@@ -21,7 +21,7 @@ int gensim(const unsigned int frame_size, const unsigned long frame_count, const
 	size = (frame_count * frame_size) + 1;
 	wave_out = malloc(size * sizeof(unsigned char));
 	if (wave_out == NULL)
-		return 1;
+		return 0;
 
 	// For each frame
 	for (f = 0; f < frame_count - 1; f++) {
@@ -44,5 +44,5 @@ int gensim(const unsigned int frame_size, const unsigned long frame_count, const
 	
 	free(wave_out);
 	
-	return 0;
+	return 1;
 }

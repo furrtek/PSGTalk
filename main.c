@@ -93,23 +93,23 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// Anti-alias filtering
-	aa_buffer = (float *)malloc(wave_size);
+	aa_buffer = calloc(wave_size, sizeof(float));
 	if (aa_buffer == NULL) {
 		puts("Memory allocation failed\n");
 		free(wave_buffer);
-		return 0;
+		return 1;
 	}
 	lowpass(wave_buffer, aa_buffer, 8192.0, samplerate_in, wave_size);
 	
 	// Decimate
 	ratio = ((float)samplerate_in / 8192.0);
 	work_size = wave_size / (int)ratio;
-	work_buffer = malloc(work_size * sizeof(unsigned char));
+	work_buffer = calloc(work_size, sizeof(float));
 	if (work_buffer == NULL) {
 		puts("Memory allocation failed\n");
 		free(wave_buffer);
 		free(aa_buffer);
-		return 0;
+		return 1;
 	}
 	for (i = 0; i < work_size; i++)
 		work_buffer[i] = aa_buffer[(int)(i * ratio)];
