@@ -1,6 +1,6 @@
 #include "main.h"
 
-int load_wav(const char * filename, float * buffer) { 
+int load_wav(const char * filename, float ** buffer) { 
 	unsigned long size, i;
 	short channels;
 	short bits;
@@ -25,14 +25,14 @@ int load_wav(const char * filename, float * buffer) {
 	
 	fseek(f, 44, SEEK_SET);
 	
-	buffer = calloc(size, sizeof(float));
+	*buffer = calloc(size, sizeof(float));
 	
-	if (buffer == NULL)
+	if (*buffer == NULL)
 		return 0;
 	
 	// Load and normalize
 	for (i = 0; i < size; i++)
-		buffer[i] = (float)(fgetc(f) / 128);
+		(*buffer)[i] = (float)(fgetc(f) / 128);
 
 	fclose(f);
 	

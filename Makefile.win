@@ -1,18 +1,18 @@
 # Project: PSGTalk
 # Makefile created by Dev-C++ 4.9.9.2
 
-CPP  = g++.exe
-CC   = gcc.exe
+CPP  = g++.exe -D__DEBUG__
+CC   = gcc.exe -D__DEBUG__
 WINDRES = windres.exe
 RES  = 
 OBJ  = main.o sim.o load.o interface.o analog.o out_vgm.o out_raw.o out_ngp.o $(RES)
 LINKOBJ  = main.o sim.o load.o interface.o analog.o out_vgm.o out_raw.o out_ngp.o $(RES)
-LIBS =  -L"D:/Dev-Cpp/lib"  
+LIBS =  -L"D:/Dev-Cpp/lib"  -g3 
 INCS =  -I"D:/Dev-Cpp/include" 
 CXXINCS =  -I"D:/Dev-Cpp/lib/gcc/mingw32/3.4.2/include"  -I"D:/Dev-Cpp/include/c++/3.4.2/backward"  -I"D:/Dev-Cpp/include/c++/3.4.2/mingw32"  -I"D:/Dev-Cpp/include/c++/3.4.2"  -I"D:/Dev-Cpp/include" 
 BIN  = psgtalk.exe
-CXXFLAGS = $(CXXINCS)   -Wall
-CFLAGS = $(INCS) -Wall   -Wall
+CXXFLAGS = $(CXXINCS)   -Wall -g3
+CFLAGS = $(INCS) -Wall   -Wall -g3
 RM = rm -f
 
 .PHONY: all all-before all-after clean clean-custom

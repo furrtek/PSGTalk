@@ -1,10 +1,11 @@
 #include "main.h"
 
-int out_vgm(unsigned char * out_buffer, channels_t const * frequencies, channels_t const * volumes,
-	const unsigned long frame_count) {
+int out_vgm(unsigned char ** out_buffer, unsigned int const * frequencies, unsigned int const * volumes,
+	unsigned long frame_count) {
 	
+	unsigned char * out_buffer_value;
 	unsigned int c;
-	unsigned long f, file_length;
+	unsigned long f;
 	unsigned long idx;
 	wait_t wait_mode;
 	unsigned long wait_n;
@@ -49,11 +50,13 @@ int out_vgm(unsigned char * out_buffer, channels_t const * frequencies, channels
 	} else
 		file_length = (frame_count + (frame_count * psg_channels * 9) + 1) + 64;		// Wrong ?
 	
-	out_buffer = malloc(file_length * sizeof(unsigned char));
-	if (out_buffer == NULL)
+	*out_buffer = malloc(file_length * sizeof(unsigned char));
+	if (*out_buffer == NULL)
 		return 0;
 	
 	psg_internal = psg_freq / 16;
+	
+	out_buffer_value = *out_buffer;
 	
 	// For each frame
 	for (f = 0; f < frame_count - 1; f++) {
@@ -62,37 +65,37 @@ int out_vgm(unsigned char * out_buffer, channels_t const * frequencies, channels
 			idx = (f * psg_channels) + c;
 			
 			// Todo: Make frequency LUT ?
-			data_word = psg_internal / (frequencies[idx].ch[c] * freq_step);
+			data_word = psg_internal / (frequencies[idx] * freq_step);
 			if (data_word > 1023) data_word = 1023;
 			
-			volume = volumes[idx].ch[c];
+			volume = volumes[idx];
 			if (volume > 15) volume = 15;
 			volume = 15 - volume;
 			
-			out_buffer[data_idx++] = 0x50;		// VGM "PSG write"
-			out_buffer[data_idx++] = 0x90 | (c << 5) | volume;
-			out_buffer[data_idx++] = 0x50;		// VGM "PSG write"
-			out_buffer[data_idx++] = 0x80 | (c << 5) | (data_word & 0x0F);
-			out_buffer[data_idx++] = 0x50;		// VGM "PSG write"
-			out_buffer[data_idx++] = data_word >> 4;
+			out_buffer_value[data_idx++] = 0x50;		// VGM "PSG write"
+			out_buffer_value[data_idx++] = 0x90 | (c << 5) | volume;
+			out_buffer_value[data_idx++] = 0x50;		// VGM "PSG write"
+			out_buffer_value[data_idx++] = 0x80 | (c << 5) | (data_word & 0x0F);
+			out_buffer_value[data_idx++] = 0x50;		// VGM "PSG write"
+			out_buffer_value[data_idx++] = data_word >> 4;
 		}
 		
 		if (wait_mode == WAIT_NTSC)
-			out_buffer[data_idx++] = 0x62;	// VGM "NTSC wait"
+			out_buffer_value[data_idx++] = 0x62;	// VGM "NTSC wait"
 		else if (wait_mode == WAIT_NTSC)
-			out_buffer[data_idx++] = 0x63;	// VGM "PAL wait"
+			out_buffer_value[data_idx++] = 0x63;	// VGM "PAL wait"
 		else if (wait_mode == WAIT_N) {
-			out_buffer[data_idx++] = 0x61;	// VGM "Wait n samples"
-			out_buffer[data_idx++] = wait_n & 0xFF;
-			out_buffer[data_idx++] = wait_n >> 8;
+			out_buffer_value[data_idx++] = 0x61;	// VGM "Wait n samples"
+			out_buffer_value[data_idx++] = wait_n & 0xFF;
+			out_buffer_value[data_idx++] = wait_n >> 8;
 		}
 	}
-	
+		
 	// Make header
 	vgm_header[1] = file_length;
 	vgm_header[3] = psg_freq;
 	vgm_header[6] = (frame_count - 1) * wait_n;
-	memcpy(out_buffer, vgm_header, 64);
+	memcpy(out_buffer_value, vgm_header, 64);
 	
 	//free(out_buffer);
 	

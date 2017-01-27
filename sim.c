@@ -8,17 +8,21 @@ int square(int a) {
 		return -1;
 }
 
-int gensim(const unsigned int frame_size, const unsigned long frame_count, const char channels, channels_t const * frequencies, channels_t const * volumes) {
+int gensim(const unsigned int frame_size, const unsigned long frame_count, const char channels,
+	unsigned int const * frequencies, unsigned int const * volumes) {
+	
 	unsigned long size;
 	unsigned long f, s;
 	unsigned int c;
 	unsigned char * wave_out;
 	unsigned long data_idx = 0;
+	unsigned long idx;
 	int mix;
 	unsigned char b;
 	float adjust;
 	
 	size = (frame_count * frame_size) + 1;
+		return 1;
 	wave_out = malloc(size * sizeof(unsigned char));
 	if (wave_out == NULL)
 		return 0;
@@ -31,7 +35,8 @@ int gensim(const unsigned int frame_size, const unsigned long frame_count, const
 			mix = 0;
 			// Certainly wrong
 			for (c = 0; c < channels; c++) {
-            	mix += 64 * (square(0xFF * frequencies[f].ch[c] * adjust) * attenuation_lut[(int)volumes[f].ch[c]]);
+				idx = (f * channels) + c;
+            	mix += 64 * (square(0xFF * frequencies[idx] * adjust) * attenuation_lut[(int)volumes[idx]]);
 			}
             b = (unsigned char)mix;
             wave_out[data_idx++] = b;

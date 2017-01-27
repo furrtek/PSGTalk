@@ -38,14 +38,15 @@ int main(int argc, char *argv[]) {
 	float * work_buffer;
 	float * frame_buffer;
 	float * dft_bins;
-	channels_t * frequencies;
-	channels_t * volumes;
+	unsigned int * frequencies;
+	unsigned int * volumes;
 	unsigned char * out_buffer;
 	
 	unsigned char consolidate;
-	unsigned long file_length, wave_size, work_size;
+	unsigned long wave_size, work_size;
 	unsigned int frame_size, frame_inc;
 	unsigned int i, ofs;
+	unsigned long idx;
 	
 	unsigned long c, m, k, t, f;
 	float kmax;
@@ -82,11 +83,13 @@ int main(int argc, char *argv[]) {
 	psg_channels = 3;
 	sim = 0;
 	mode = MODE_VGM;
+	fps = 60;
+	freq_res = 64;
 	
 	if (parse_args(argc, argv))
 		return 1;
 
-	wave_size = load_wav(argv[argc - 1], wave_buffer);
+	wave_size = load_wav(argv[argc - 1], &wave_buffer);
 	if (!wave_size) {
 		puts("Can't load wave file.\n");
 		return 1;
@@ -103,7 +106,7 @@ int main(int argc, char *argv[]) {
 	
 	// Decimate
 	ratio = ((float)samplerate_in / 8192.0);
-	work_size = wave_size / (int)ratio;
+	work_size = (int)(wave_size / ratio);
 	work_buffer = calloc(work_size, sizeof(float));
 	if (work_buffer == NULL) {
 		puts("Memory allocation failed\n");
@@ -118,15 +121,15 @@ int main(int argc, char *argv[]) {
 	frame_size = (8192.0 * (overlap + 1.0)) / update_rate;
 	frame_inc = (float)frame_size * (1.0 - overlap);
 	m = 1;									// Discrimination between power peaks
-	frames = work_size / frame_size;		// Total number of frames
+	frames = work_size / frame_inc;			// Total number of frames
 	freq_step = (8192 / freq_res) / 2;
 	
 	frame_buffer = malloc(frame_size * sizeof(float));
 	dft_bins = malloc(freq_res * sizeof(float));
-	frequencies = malloc(frames * sizeof(channels_t) * psg_channels);
-	volumes = malloc(frames * sizeof(channels_t) * psg_channels);
+	frequencies = malloc(frames * sizeof(unsigned int) * psg_channels);
+	volumes = malloc(frames * sizeof(unsigned int) * psg_channels);
 	
-	if ((window_lut == NULL) || (dft_bins == NULL) || (frame_buffer == NULL) || (frequencies == NULL) || (volumes == NULL)) {
+	if ((dft_bins == NULL) || (frame_buffer == NULL) || (frequencies == NULL) || (volumes == NULL)) {
 		puts("Memory allocation failed\n");
 		return 1;
 	}
@@ -139,11 +142,12 @@ int main(int argc, char *argv[]) {
 	// Show recap
 	printf("Frames: %lu\n", frames);
 	printf("Overlap: %u%%\n", (unsigned int)(overlap * 100.0));
-	printf("Samplerate: %luHz -> %u\n", samplerate_in, 8192);
+	printf("Samplerate: %luHz -> %uHz\n", samplerate_in, 8192);
 	printf("Resolution: %uHz\n", freq_step);
 	printf("Update rate: %u/frame (%uHz @ %ufps)\n", updates_per_frame, update_rate, fps);
 	printf("PSG channels: %u\n", psg_channels);
 	printf("Mode: %s\n", modestr[mode]);
+	
 	
 	f = 0;
 	do {
@@ -174,10 +178,11 @@ int main(int argc, char *argv[]) {
 		// Find highest peaks
 		consolidate = 0;
 		for (c = 0; c < psg_channels; c++) {
+			idx = (frame_idx * psg_channels) + c;
 			if (consolidate) {
 				max_power -= 5;
-	    		frequencies[frame_idx].ch[c] = frequencies[frame_idx].ch[c - 1];
-	    		volumes[frame_idx].ch[c] = lintolog(max_power);
+	    		frequencies[idx] = frequencies[idx - 1];
+	    		volumes[idx] = lintolog(max_power);
 			} else {
 				// Find highest power and its associated frequency (skip DC bin)
 		    	max_power = 0;
@@ -196,8 +201,8 @@ int main(int argc, char *argv[]) {
 				}
 				
 				//printf("(%fHz)\n", kmax/2*freq_step);
-		    	frequencies[frame_idx].ch[c] = kmax;
-		    	volumes[frame_idx].ch[c] = lintolog(max_power);
+		    	frequencies[idx] = kmax;
+		    	volumes[idx] = lintolog(max_power);
 			}
 			
 			consolidate = (max_power >= 5) ? 1 : 0;
@@ -229,13 +234,13 @@ int main(int argc, char *argv[]) {
 	FILE * fo = fopen(outfilepath, "wb");
 	
 	if (mode == MODE_RAW) {
-		out_raw(out_buffer, frequencies, volumes, frame_idx, freq_res);
+		out_raw(&out_buffer, frequencies, volumes, frame_idx, freq_res);
 	} else if (mode == MODE_VGM) {
-		out_vgm(out_buffer, frequencies, volumes, frame_idx);
+		out_vgm(&out_buffer, frequencies, volumes, frame_idx);
 	} else if (mode == MODE_NGP) {
-		out_ngp(out_buffer, frequencies, volumes, frame_idx);
+		out_ngp(&out_buffer, frequencies, volumes, frame_idx);
 	}
-	
+
 	fwrite(out_buffer, file_length, 1, fo);
 	fclose(fo);
 
@@ -243,7 +248,7 @@ int main(int argc, char *argv[]) {
 	
 	puts("Output file written.");
 	printf("Size: %lukB\n", file_length / 1024);
-	
+
 	// Generate simulation file if needed
 	if (sim) {
 		if (gensim(frame_size, frame_idx, psg_channels, frequencies, volumes))
@@ -254,10 +259,10 @@ int main(int argc, char *argv[]) {
 	free(volumes);
 	free(frame_buffer);
 	free(wave_buffer);
-	free(work_buffer);
+	free(work_buffer); 
 	free(dft_bins);
 	
-    //system("pause");
+    system("pause");
     //return 0;
 
 	return 0;

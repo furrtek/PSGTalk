@@ -93,7 +93,7 @@ int parse_args(int argc, char * argv[]) {
 					printusage();
 					return 1;
 				}
-				if (overlap_percent > 64) {
+				if (overlap_percent > 50) {
 					puts("Invalid overlap percentage.\n");
 					return 1;
 				}
