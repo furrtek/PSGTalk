@@ -32,7 +32,7 @@ int load_wav(const char * filename, float ** buffer) {
 	
 	// Load and normalize
 	for (i = 0; i < size; i++)
-		(*buffer)[i] = (float)(fgetc(f) / 128);
+		(*buffer)[i] = (float)fgetc(f) / 128.0;
 
 	fclose(f);
 	

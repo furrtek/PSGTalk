@@ -4,9 +4,9 @@ int make_LUTs(unsigned long window_size) {
 	unsigned long i;
 	float angle;
 	
-	cos_lut = (float *)malloc(32768 * sizeof(float));
-	sin_lut = (float *)malloc(32768 * sizeof(float));
-	window_lut = (float *)malloc(window_size * sizeof(float));
+	cos_lut = (float *)calloc(32768, sizeof(float));
+	sin_lut = (float *)calloc(32768, sizeof(float));
+	window_lut = (float *)calloc(window_size, sizeof(float));
 	if ((cos_lut == NULL) || (sin_lut == NULL) || (window_lut == NULL))
 		return 0;
 	

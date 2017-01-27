@@ -50,7 +50,7 @@ int out_vgm(unsigned char ** out_buffer, unsigned int const * frequencies, unsig
 	} else
 		file_length = (frame_count + (frame_count * psg_channels * 9) + 1) + 64;		// Wrong ?
 	
-	*out_buffer = malloc(file_length * sizeof(unsigned char));
+	*out_buffer = calloc(file_length, sizeof(unsigned char));
 	if (*out_buffer == NULL)
 		return 0;
 	

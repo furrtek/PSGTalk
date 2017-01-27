@@ -25,7 +25,7 @@ char lintolog(float in) {
     
     // So wrong it hurts...
     
-    result = in * 4;
+    result = (int)(in * 4);
     if (result > 15) result = 15;
     if (result < 0) result = 0;
     return result;
@@ -45,11 +45,12 @@ int main(int argc, char *argv[]) {
 	unsigned char consolidate;
 	unsigned long wave_size, work_size;
 	unsigned int frame_size, frame_inc;
-	unsigned int i, ofs;
+	unsigned int i;
+	int ofs;
 	unsigned long idx;
 	
 	unsigned long c, m, k, t, f;
-	float kmax;
+	unsigned int kmax;
 	float max_power;
 	float in_r, sum_r, sum_i;
 	float ratio;
@@ -114,6 +115,7 @@ int main(int argc, char *argv[]) {
 		free(aa_buffer);
 		return 1;
 	}
+	
 	for (i = 0; i < work_size; i++)
 		work_buffer[i] = aa_buffer[(int)(i * ratio)];
 
@@ -124,10 +126,10 @@ int main(int argc, char *argv[]) {
 	frames = work_size / frame_inc;			// Total number of frames
 	freq_step = (8192 / freq_res) / 2;
 	
-	frame_buffer = malloc(frame_size * sizeof(float));
-	dft_bins = malloc(freq_res * sizeof(float));
-	frequencies = malloc(frames * sizeof(unsigned int) * psg_channels);
-	volumes = malloc(frames * sizeof(unsigned int) * psg_channels);
+	frame_buffer = calloc(frame_size, sizeof(float));
+	dft_bins = calloc(freq_res, sizeof(float));
+	frequencies = calloc(frames * psg_channels, sizeof(unsigned int));
+	volumes = calloc(frames * psg_channels, sizeof(unsigned int));
 	
 	if ((dft_bins == NULL) || (frame_buffer == NULL) || (frequencies == NULL) || (volumes == NULL)) {
 		puts("Memory allocation failed\n");
@@ -172,7 +174,7 @@ int main(int argc, char *argv[]) {
         	sum_i /= frame_size;
         
         	dft_bins[k] = sqrt((sum_i * sum_i) + (sum_r * sum_r));
-    		//if (framei == 1) printf("SAMP=%u POW=%f (%uHz)\n", workbuffer[k + f], pow[k], k*freq_step);
+    		//if (f == 0) printf("SAMP=%f POW=%f (%uHz)\n", frame_buffer[k], dft_bins[k], k * freq_step);
 		}
 
 		// Find highest peaks
@@ -180,7 +182,7 @@ int main(int argc, char *argv[]) {
 		for (c = 0; c < psg_channels; c++) {
 			idx = (frame_idx * psg_channels) + c;
 			if (consolidate) {
-				max_power -= 5;
+				max_power -= 0.4;
 	    		frequencies[idx] = frequencies[idx - 1];
 	    		volumes[idx] = lintolog(max_power);
 			} else {
@@ -195,17 +197,18 @@ int main(int argc, char *argv[]) {
 				// Clear surrounding bins if needed
 				for (t = 0; t < m; t++) {
 					ofs = kmax - t - 1;
-					if (ofs) dft_bins[ofs] = 0;
+					if (ofs >= 0) dft_bins[ofs] = 0;
 					ofs = kmax + t + 1;
 					if (ofs < freq_res) dft_bins[ofs] = 0;	
 				}
 				
-				//printf("(%fHz)\n", kmax/2*freq_step);
 		    	frequencies[idx] = kmax;
 		    	volumes[idx] = lintolog(max_power);
 			}
 			
-			consolidate = (max_power >= 5) ? 1 : 0;
+			consolidate = (max_power >= 0.4) ? 1 : 0;
+			
+			if (frame_idx == 0) printf("C%lu=%uHz\n", c, kmax * freq_step);		// DEBUG
 		}
         
     	frame_idx++;
@@ -251,7 +254,7 @@ int main(int argc, char *argv[]) {
 
 	// Generate simulation file if needed
 	if (sim) {
-		if (gensim(frame_size, frame_idx, psg_channels, frequencies, volumes))
+		if (gen_sim(frame_size, frame_idx, psg_channels, frequencies, volumes))
 			puts("\nSimulation file written.\n");
 	}
 	

@@ -28,7 +28,7 @@ unsigned long file_length;
 
 int parse_args(int argc, char * argv[]);
 int load_wav(const char * filename, float ** result);
-int gensim(const unsigned int frame_size, const unsigned long frame_count, char channels,
+int gen_sim(const unsigned int frame_size, const unsigned long frame_count, char channels,
 	unsigned int const * frequencies, unsigned int const * volumes);
 int make_LUTs(unsigned long window_size);
 void lowpass(float * in_buffer, float * out_buffer, float cutoff, float sample_rate, unsigned long length);

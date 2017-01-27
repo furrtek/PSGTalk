@@ -11,7 +11,7 @@ int out_raw(unsigned char ** out_buffer, unsigned int const * frequencies, unsig
 	
 	if (n < 256) {
 		file_length = ((frame_count * psg_channels * 2) + 1);			// Frequency(byte)/volume pairs
-		*out_buffer = malloc(file_length * sizeof(unsigned char));
+		*out_buffer = calloc(file_length, sizeof(unsigned char));
 		if (*out_buffer == NULL)
 			return 0;
 		
@@ -28,7 +28,7 @@ int out_raw(unsigned char ** out_buffer, unsigned int const * frequencies, unsig
 		}
 	} else {
 		file_length = ((frame_count * psg_channels * 3) + 1);			// Frequency(word)/volume pairs
-		*out_buffer = malloc(file_length * sizeof(unsigned char));
+		*out_buffer = calloc(file_length, sizeof(unsigned char));
 		if (*out_buffer == NULL)
 			return 0;
 		

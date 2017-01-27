@@ -13,7 +13,7 @@ int out_ngp(unsigned char ** out_buffer, unsigned int const * frequencies, unsig
 	unsigned long data_idx = 0;
 	
 	file_length = ((frame_count * psg_channels * 2) + 1);
-	*out_buffer = malloc(file_length * sizeof(unsigned char));
+	*out_buffer = calloc(file_length, sizeof(unsigned char));
 	if (*out_buffer == NULL)
 		return 0;
 	
